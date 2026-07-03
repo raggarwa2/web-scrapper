@@ -170,7 +170,7 @@ TRIANGULATION_FILES = {
     "Attribute Quadrant": ("prompt_c_attribute_quadrant.md", "prompt_c_attribute_quadrant.csv"),
     "Combined Summary": ("prompt_d_triangulation_summary.md", None),
     "Share of Voice": ("share_of_voice.md", "share_of_voice.csv"),
-    "Negative Tail": ("negative_tail_analysis.md", "negative_tail_analysis.csv"),
+    "-ve and +ve Tail": ("negative_tail_analysis.md", "negative_tail_analysis.csv"),
     "Price vs. Sentiment": ("price_sentiment.md", "price_sentiment_tiers.csv"),
     "External Validation": ("reputation_crosscheck.md", "reputation_crosscheck.csv"),
     "Purchasing Trend": ("purchasing_trend.md", None),
@@ -2178,8 +2178,15 @@ with tab_catalog:
 
 # ---- Research & Triangulation ---------------------------------------------------
 with tab_research_triangulation:
-    research_tab, *pillar_tabs = st.tabs(["Research Findings"] + list(triangulation_data.keys()))
-    with research_tab:
+    _pillar_names = list(triangulation_data.keys())
+    selected_section = st.pills(
+        "Section", ["Research Findings"] + _pillar_names,
+        default="Research Findings", key="triangulation_section_pills",
+    )
+    if selected_section is None:
+        selected_section = "Research Findings"
+
+    if selected_section == "Research Findings":
         st.subheader("Local intelligence — Deep Research findings")
         st.caption(
             "From the six-pillar local-only framework (Hong Kong). Each "
@@ -2236,15 +2243,11 @@ with tab_research_triangulation:
                     )
                 st.dataframe(display_df, width="stretch", hide_index=True)
 
-    if not any(v["md"] for v in triangulation_data.values()):
-        st.info(
-            "No triangulation output found yet. Run `python triangulation/run_triangulation.py` "
-            "from the project root, or point the sidebar 'Triangulation analysis folder' at "
-            "existing output."
-        )
-
-    for pillar_tab, (label, content) in zip(pillar_tabs, triangulation_data.items()):
-        with pillar_tab:
+    for label, content in (
+        [] if selected_section == "Research Findings"
+        else [(selected_section, triangulation_data[selected_section])]
+    ):
+        with st.container():
             st.caption(
                 "Checks our own scraped review/social data against the research framework "
                 "(channel taxonomy, switching barriers, attribute-importance quadrant) "
@@ -2519,7 +2522,7 @@ with tab_research_triangulation:
                     fig4.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
                     st.plotly_chart(fig4, width="stretch")
 
-            if label == "Negative Tail" and not negative_tail_reviews.empty:
+            if label == "-ve and +ve Tail" and not negative_tail_reviews.empty:
                 tail_direction = st.radio(
                     "Analysis direction", ["Complaints (low ratings)", "Praise (high ratings)"],
                     horizontal=True, key="negtail_direction",
