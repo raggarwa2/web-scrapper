@@ -1,0 +1,4 @@
+﻿tier,product_count,review_count,avg_rating,pct_one_star,pct_five_star,price_min,price_max
+Budget,340,3230,4.33,8.9,68.5,30,168
+Mid,264,1162,4.35,9.6,72.8,168,210
+Premium,301,1065,4.45,7.5,75.2,210,1120

@@ -1,0 +1,206 @@
+﻿brand,month,metric,value,trailing_mean,trailing_std
+Acuvue,2021-07,review_count,2.0,0.0,0.0
+Acuvue,2021-08,review_count,31.0,0.667,1.155
+Acuvue,2022-01,review_count,30.0,20.667,3.055
+Acuvue,2022-05,review_count,19.0,23.667,1.155
+Acuvue,2022-06,review_count,28.0,22.333,3.055
+Acuvue,2022-07,review_count,35.0,24.0,4.583
+Acuvue,2022-08,review_count,57.0,27.333,8.021
+Acuvue,2022-11,review_count,36.0,50.0,9.644
+Acuvue,2023-02,review_count,35.0,38.667,2.517
+Acuvue,2023-03,review_count,33.0,38.333,3.055
+Acuvue,2023-04,review_count,30.0,35.667,3.055
+Acuvue,2023-05,review_count,25.0,32.667,2.517
+Acuvue,2023-06,review_count,25.0,29.333,4.041
+Acuvue,2023-07,review_count,32.0,26.667,2.887
+Acuvue,2023-08,review_count,52.0,27.333,4.041
+Acuvue,2023-11,review_count,27.0,44.333,6.658
+Acuvue,2024-01,review_count,59.0,34.333,6.658
+Acuvue,2024-05,review_count,41.0,35.0,1.732
+Acuvue,2024-08,review_count,45.0,38.667,3.215
+Acuvue,2024-09,review_count,31.0,40.0,5.0
+Acuvue,2024-12,review_count,41.0,32.667,1.528
+Acuvue,2025-01,review_count,23.0,36.0,4.359
+Acuvue,2025-02,review_count,22.0,32.333,9.018
+Acuvue,2025-04,review_count,33.0,25.0,4.359
+Acuvue,2025-07,review_count,64.0,28.333,4.509
+Acuvue,2025-08,review_count,63.0,38.667,22.03
+Acuvue,2025-10,review_count,77.0,54.0,16.462
+Acuvue,2026-01,review_count,63.0,76.333,1.155
+Acuvue,2026-02,review_count,56.0,71.667,7.572
+Acuvue,2026-03,review_count,79.0,65.333,10.693
+Acuvue,2026-06,review_count,52.0,70.333,7.506
+Acuvue,2026-07,review_count,5.0,61.333,8.083
+Acuvue,2020-09,avg_xhs_sentiment,0.0,0.889,0.192
+Acuvue,2023-10,avg_xhs_sentiment,1.0,0.333,0.577
+Acuvue,2024-03,avg_xhs_sentiment,1.0,0.583,0.144
+Acuvue,2024-05,avg_xhs_sentiment,0.0,0.917,0.144
+Acuvue,2024-09,avg_xhs_sentiment,0.2,0.889,0.192
+Acuvue,2024-11,avg_xhs_sentiment,0.25,0.667,0.416
+Acuvue,2025-01,avg_xhs_sentiment,0.8,0.517,0.275
+Acuvue,2025-02,avg_xhs_sentiment,0.0,0.517,0.275
+Acuvue,2025-03,avg_xhs_sentiment,1.0,0.433,0.404
+Acuvue,2025-08,avg_xhs_sentiment,-0.333,0.923,0.133
+Acuvue,2026-03,avg_xhs_sentiment,0.5,0.588,0.038
+Acuvue,2026-06,avg_xhs_sentiment,0.447,0.524,0.022
+Alcon,2021-07,review_count,3.0,0.0,0.0
+Alcon,2021-08,review_count,15.0,1.0,1.732
+Alcon,2021-10,review_count,21.0,9.0,6.0
+Alcon,2021-11,review_count,8.0,15.0,6.0
+Alcon,2022-01,review_count,7.0,15.333,6.658
+Alcon,2022-04,review_count,5.0,8.667,2.887
+Alcon,2022-07,review_count,21.0,6.333,1.155
+Alcon,2022-08,review_count,20.0,11.667,8.083
+Alcon,2022-09,review_count,28.0,16.0,7.81
+Alcon,2022-10,review_count,12.0,23.0,4.359
+Alcon,2022-12,review_count,10.0,18.667,8.327
+Alcon,2023-01,review_count,16.0,12.667,3.055
+Alcon,2023-04,review_count,9.0,14.667,2.309
+Alcon,2023-05,review_count,6.0,12.333,3.512
+Alcon,2023-06,review_count,13.0,9.0,3.0
+Alcon,2023-08,review_count,14.0,10.0,3.606
+Alcon,2023-09,review_count,20.0,12.667,1.528
+Alcon,2023-11,review_count,9.0,15.667,3.786
+Alcon,2024-01,review_count,22.0,11.0,2.0
+Alcon,2024-05,review_count,12.0,9.0,1.732
+Alcon,2024-06,review_count,7.0,10.333,2.082
+Alcon,2024-07,review_count,12.0,9.0,2.646
+Alcon,2024-08,review_count,7.0,10.333,2.887
+Alcon,2024-10,review_count,5.0,10.0,2.646
+Alcon,2025-02,review_count,7.0,5.667,1.155
+Alcon,2025-03,review_count,9.0,5.667,1.155
+Alcon,2025-04,review_count,4.0,7.0,2.0
+Alcon,2025-07,review_count,21.0,5.0,1.0
+Alcon,2025-12,review_count,9.0,13.0,3.606
+Alcon,2026-01,review_count,19.0,12.0,4.359
+Alcon,2026-03,review_count,8.0,13.333,5.132
+Alcon,2026-05,review_count,13.0,10.0,2.0
+Alcon,2026-06,review_count,3.0,10.333,2.517
+Alcon,2026-07,review_count,0.0,8.667,5.132
+Alcon,2023-07,avg_xhs_sentiment,1.0,-0.667,0.577
+Alcon,2024-03,avg_xhs_sentiment,1.0,0.333,0.577
+Alcon,2024-05,avg_xhs_sentiment,-0.333,0.417,0.52
+Alcon,2025-01,avg_xhs_sentiment,0.25,0.0,0.0
+Alcon,2025-02,avg_xhs_sentiment,0.5,0.083,0.144
+Alcon,2025-08,avg_xhs_sentiment,0.0,1.0,0.0
+Alcon,2025-09,avg_xhs_sentiment,-0.5,0.667,0.577
+Alcon,2025-11,avg_xhs_sentiment,0.667,-0.167,0.289
+Alcon,2025-12,avg_xhs_sentiment,0.833,0.056,0.585
+Alcon,2026-02,avg_xhs_sentiment,1.0,0.685,0.139
+Alcon,2026-03,avg_xhs_sentiment,-0.167,0.796,0.224
+Bausch & Lomb,2021-07,review_count,4.0,0.0,0.0
+Bausch & Lomb,2021-08,review_count,47.0,1.333,2.309
+Bausch & Lomb,2021-12,review_count,15.0,24.333,4.726
+Bausch & Lomb,2022-01,review_count,14.0,20.0,5.568
+Bausch & Lomb,2022-03,review_count,23.0,14.0,1.0
+Bausch & Lomb,2022-04,review_count,23.0,16.667,5.508
+Bausch & Lomb,2022-06,review_count,13.0,20.667,4.041
+Bausch & Lomb,2022-07,review_count,24.0,17.333,5.132
+Bausch & Lomb,2022-08,review_count,45.0,17.667,5.686
+Bausch & Lomb,2022-11,review_count,33.0,42.0,3.606
+Bausch & Lomb,2023-03,review_count,41.0,37.667,0.577
+Bausch & Lomb,2023-04,review_count,29.0,38.667,2.082
+Bausch & Lomb,2023-05,review_count,27.0,36.0,6.245
+Bausch & Lomb,2023-06,review_count,22.0,32.333,7.572
+Bausch & Lomb,2023-08,review_count,53.0,25.0,2.646
+Bausch & Lomb,2023-11,review_count,35.0,47.333,5.132
+Bausch & Lomb,2024-01,review_count,43.0,38.333,4.163
+Bausch & Lomb,2024-02,review_count,24.0,38.333,4.163
+Bausch & Lomb,2024-03,review_count,50.0,34.667,9.713
+Bausch & Lomb,2024-07,review_count,31.0,34.667,1.155
+Bausch & Lomb,2024-09,review_count,27.0,33.0,1.732
+Bausch & Lomb,2024-10,review_count,25.0,30.667,3.512
+Bausch & Lomb,2024-12,review_count,30.0,26.333,1.155
+Bausch & Lomb,2025-02,review_count,24.0,28.667,1.528
+Bausch & Lomb,2025-03,review_count,23.0,27.667,3.215
+Bausch & Lomb,2025-04,review_count,21.0,25.333,3.215
+Bausch & Lomb,2025-05,review_count,28.0,22.667,1.528
+Bausch & Lomb,2025-06,review_count,31.0,24.0,3.606
+Bausch & Lomb,2025-07,review_count,40.0,26.667,5.132
+Bausch & Lomb,2025-09,review_count,28.0,35.333,4.509
+Bausch & Lomb,2025-11,review_count,39.0,31.667,3.512
+Bausch & Lomb,2025-12,review_count,23.0,33.0,5.568
+Bausch & Lomb,2026-01,review_count,23.0,31.333,8.021
+Bausch & Lomb,2026-03,review_count,27.0,22.667,0.577
+Bausch & Lomb,2026-05,review_count,33.0,24.333,2.517
+Bausch & Lomb,2026-07,review_count,1.0,28.333,4.509
+Bausch & Lomb,2024-05,avg_xhs_sentiment,1.0,0.111,0.315
+Bausch & Lomb,2024-07,avg_xhs_sentiment,0.2,0.583,0.382
+Bausch & Lomb,2024-09,avg_xhs_sentiment,1.0,0.344,0.15
+Bausch & Lomb,2024-10,avg_xhs_sentiment,0.0,0.511,0.429
+Bausch & Lomb,2025-02,avg_xhs_sentiment,0.5,0.833,0.289
+Bausch & Lomb,2025-04,avg_xhs_sentiment,0.0,0.833,0.289
+Bausch & Lomb,2025-09,avg_xhs_sentiment,0.714,0.456,0.237
+Bausch & Lomb,2025-11,avg_xhs_sentiment,0.417,0.571,0.124
+Bausch & Lomb,2025-12,avg_xhs_sentiment,0.0,0.544,0.153
+Bausch & Lomb,2026-03,avg_xhs_sentiment,0.25,0.067,0.115
+Bausch & Lomb,2026-04,avg_xhs_sentiment,0.5,0.15,0.132
+Bausch & Lomb,2026-05,avg_xhs_sentiment,-0.167,0.25,0.25
+Bausch & Lomb,2026-07,avg_xhs_sentiment,1.0,0.252,0.365
+CooperVision,2021-08,review_count,14.0,0.0,0.0
+CooperVision,2022-02,review_count,11.0,6.333,1.528
+CooperVision,2022-03,review_count,11.0,7.333,3.215
+CooperVision,2022-05,review_count,7.0,10.667,0.577
+CooperVision,2022-08,review_count,16.0,8.667,1.528
+CooperVision,2022-09,review_count,18.0,11.667,3.786
+CooperVision,2022-10,review_count,8.0,14.333,4.726
+CooperVision,2023-01,review_count,5.0,14.0,5.292
+CooperVision,2023-06,review_count,10.0,9.333,0.577
+CooperVision,2023-07,review_count,14.0,9.333,0.577
+CooperVision,2023-08,review_count,16.0,11.0,2.646
+CooperVision,2023-09,review_count,17.0,13.333,3.055
+CooperVision,2023-10,review_count,5.0,15.667,1.528
+CooperVision,2023-11,review_count,20.0,12.667,6.658
+CooperVision,2023-12,review_count,4.0,14.0,7.937
+CooperVision,2024-04,review_count,5.0,15.0,2.646
+CooperVision,2024-10,review_count,9.0,7.333,0.577
+CooperVision,2024-11,review_count,10.0,7.667,1.155
+CooperVision,2024-12,review_count,5.0,8.667,1.528
+CooperVision,2025-01,review_count,4.0,8.0,2.646
+CooperVision,2025-07,review_count,2.0,5.0,1.0
+CooperVision,2025-08,review_count,1.0,4.333,2.082
+CooperVision,2025-10,review_count,4.0,2.0,1.0
+CooperVision,2025-12,review_count,8.0,3.667,0.577
+CooperVision,2026-01,review_count,3.0,5.333,2.309
+CooperVision,2026-04,review_count,1.0,3.0,0.0
+CooperVision,2026-05,review_count,5.0,2.333,1.155
+CooperVision,2026-07,review_count,0.0,3.0,2.0
+CooperVision,2024-06,avg_xhs_sentiment,0.0,0.833,0.289
+CooperVision,2024-11,avg_xhs_sentiment,0.0,1.0,0.0
+CooperVision,2025-05,avg_xhs_sentiment,0.667,-0.222,0.694
+CooperVision,2025-09,avg_xhs_sentiment,0.571,-0.083,0.382
+CooperVision,2026-01,avg_xhs_sentiment,1.0,0.267,0.208
+CooperVision,2026-05,avg_xhs_sentiment,0.071,0.222,0.111
+Olens,2022-05,review_count,5.0,0.0,0.0
+Olens,2022-08,review_count,7.0,4.0,1.0
+Olens,2022-09,review_count,7.0,4.667,2.082
+Olens,2022-11,review_count,9.0,6.667,0.577
+Olens,2023-02,review_count,6.0,7.667,1.528
+Olens,2023-03,review_count,10.0,6.667,1.155
+Olens,2023-04,review_count,12.0,8.0,2.0
+Olens,2023-05,review_count,4.0,9.333,3.055
+Olens,2023-07,review_count,0.0,8.333,4.041
+Olens,2023-10,review_count,17.0,0.0,0.0
+Olens,2024-02,review_count,4.0,7.333,2.082
+Olens,2024-04,review_count,2.0,5.667,2.887
+Olens,2024-06,review_count,1.0,3.333,1.155
+Olens,2024-09,review_count,6.0,2.0,1.0
+Olens,2024-10,review_count,6.0,3.667,2.082
+Olens,2024-11,review_count,0.0,5.0,1.732
+Olens,2025-03,review_count,5.0,3.0,1.0
+Olens,2025-07,review_count,5.0,2.333,0.577
+Olens,2025-08,review_count,1.0,3.0,1.732
+Olens,2025-09,review_count,0.0,2.667,2.082
+Olens,2026-04,review_count,1.0,0.0,0.0
+Olens,2026-05,review_count,5.0,0.333,0.577
+Olens,2024-08,avg_xhs_sentiment,0.833,1.0,0.0
+Olens,2024-09,avg_xhs_sentiment,0.25,0.944,0.096
+Olens,2025-01,avg_xhs_sentiment,0.625,1.0,0.0
+Olens,2025-02,avg_xhs_sentiment,0.2,0.875,0.217
+Olens,2025-05,avg_xhs_sentiment,0.0,0.456,0.237
+Olens,2025-06,avg_xhs_sentiment,0.0,0.389,0.347
+Olens,2025-07,avg_xhs_sentiment,0.5,0.167,0.289
+Olens,2025-08,avg_xhs_sentiment,0.714,0.167,0.289
+Olens,2025-10,avg_xhs_sentiment,0.0,0.516,0.191
+Olens,2025-12,avg_xhs_sentiment,0.889,0.301,0.287
+Olens,2026-04,avg_xhs_sentiment,0.35,0.64,0.222

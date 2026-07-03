@@ -1,0 +1,16 @@
+﻿brand,tier,review_count,avg_rating,pct_one_star,pct_five_star,thin_cell
+Acuvue,Budget,807,4.41,8.4,72.4,False
+Acuvue,Mid,1019,4.31,10.3,71.7,False
+Acuvue,Premium,496,4.46,8.7,77.2,False
+Alcon,Budget,269,4.17,11.5,65.4,False
+Alcon,Mid,88,4.47,5.7,75.0,False
+Alcon,Premium,308,4.37,7.5,71.1,False
+Bausch & Lomb,Budget,1562,4.34,8.6,68.2,False
+Bausch & Lomb,Mid,34,4.65,2.9,82.4,False
+Bausch & Lomb,Premium,196,4.51,6.1,77.0,False
+CooperVision,Budget,402,4.41,6.7,67.4,False
+CooperVision,Mid,21,5.0,0.0,100.0,False
+CooperVision,Premium,65,4.65,3.1,73.8,False
+Olens,Budget,190,3.94,15.3,61.1,False
+Olens,Mid,0,,0.0,0.0,True
+Olens,Premium,0,,0.0,0.0,True
