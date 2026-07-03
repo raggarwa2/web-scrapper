@@ -1,4 +1,4 @@
-market,brand,retailer,status,source_url,geo_validated
+﻿market,brand,retailer,status,source_url,geo_validated
 HK,Acuvue,HKTVmall,Present,https://www.hktvmall.com/hktv/en/main/OLENS-HK-Flagship-Store/s/H6878001,Yes
 HK,Alcon,HKTVmall,Present,https://www.hktvmall.com/hktv/en/main/OLENS-HK-Flagship-Store/s/H6878001,Yes
 HK,Bausch & Lomb,HKTVmall,Present,https://www.hktvmall.com/hktv/en/main/OLENS-HK-Flagship-Store/s/H6878001,Yes
@@ -74,63 +74,3 @@ HK,Alcon,SmartBuyGlasses HK,Unverified,https://en.smartbuyglasses.com.hk/contact
 HK,Bausch & Lomb,SmartBuyGlasses HK,Unverified,https://en.smartbuyglasses.com.hk/contact-lenses/olens,No
 HK,CooperVision,SmartBuyGlasses HK,Unverified,https://en.smartbuyglasses.com.hk/contact-lenses/olens,No
 HK,Olens,SmartBuyGlasses HK,Absent,https://en.smartbuyglasses.com.hk/contact-lenses/olens,No
-TH,Acuvue,Lazada Thailand,Unverified,https://www.lazada.co.th/cooper-vision/,Yes
-TH,Alcon,Lazada Thailand,Unverified,https://www.lazada.co.th/cooper-vision/,Yes
-TH,Bausch & Lomb,Lazada Thailand,Unverified,https://www.lazada.co.th/cooper-vision/,Yes
-TH,CooperVision,Lazada Thailand,Present,https://www.lazada.co.th/cooper-vision/,Yes
-TH,Olens,Lazada Thailand,Present,https://hashtaglegend.com/th/olens-official-launch-store-in-thailand/,Yes
-TH,Acuvue,Shopee Thailand,Present,https://shopee.co.th/acuvueofficial,Yes
-TH,Alcon,Shopee Thailand,Unverified,https://shopee.co.th/acuvueofficial,Yes
-TH,Bausch & Lomb,Shopee Thailand,Unverified,https://shopee.co.th/acuvueofficial,Yes
-TH,CooperVision,Shopee Thailand,Unverified,https://shopee.co.th/acuvueofficial,Yes
-TH,Olens,Shopee Thailand,Present,https://hashtaglegend.com/th/olens-official-launch-store-in-thailand/,Yes
-TH,Acuvue,TA-TO.com,Present,https://www.ta-to.com/en/,Yes
-TH,Alcon,TA-TO.com,Present,https://www.ta-to.com/en/,Yes
-TH,Bausch & Lomb,TA-TO.com,Present,https://www.ta-to.com/en/,Yes
-TH,CooperVision,TA-TO.com,Absent,https://www.ta-to.com/en/,Yes
-TH,Olens,TA-TO.com,Absent,https://www.ta-to.com/en/,Yes
-TH,Acuvue,Optical 88 Thailand,Unverified,https://eshop.optical88.co.th/en/contact-lens/brands/bausch-lomb,Yes
-TH,Alcon,Optical 88 Thailand,Unverified,https://eshop.optical88.co.th/en/contact-lens/brands/bausch-lomb,Yes
-TH,Bausch & Lomb,Optical 88 Thailand,Present,https://eshop.optical88.co.th/en/contact-lens/brands/bausch-lomb,Yes
-TH,CooperVision,Optical 88 Thailand,Unverified,https://eshop.optical88.co.th/en/contact-lens/brands/bausch-lomb,Yes
-TH,Olens,Optical 88 Thailand,Unverified,https://eshop.optical88.co.th/en/contact-lens/brands/bausch-lomb,Yes
-TH,Acuvue,Maxim Inter Corporation,Absent,https://www.maxim.co.th/brands/coopervision/,Yes
-TH,Alcon,Maxim Inter Corporation,Unverified,https://www.maxim.co.th/brands/coopervision/,Yes
-TH,Bausch & Lomb,Maxim Inter Corporation,Unverified,https://www.maxim.co.th/brands/coopervision/,Yes
-TH,CooperVision,Maxim Inter Corporation,Present,https://www.maxim.co.th/brands/coopervision/,Yes
-TH,Olens,Maxim Inter Corporation,Absent,https://www.maxim.co.th/brands/coopervision/,Yes
-TH,Acuvue,PB Optic,Unverified,https://www.pboptic.com/coopervision-m-13.html,Yes
-TH,Alcon,PB Optic,Unverified,https://www.pboptic.com/coopervision-m-13.html,Yes
-TH,Bausch & Lomb,PB Optic,Unverified,https://www.pboptic.com/coopervision-m-13.html,Yes
-TH,CooperVision,PB Optic,Present,https://www.pboptic.com/coopervision-m-13.html,Yes
-TH,Olens,PB Optic,Unverified,https://www.pboptic.com/coopervision-m-13.html,Yes
-TH,Acuvue,Chokdee Optical,Unverified,https://www.chokedeeoptical.com/category/3680/coopervision,Yes
-TH,Alcon,Chokdee Optical,Unverified,https://www.chokedeeoptical.com/category/3680/coopervision,Yes
-TH,Bausch & Lomb,Chokdee Optical,Unverified,https://www.chokedeeoptical.com/category/3680/coopervision,Yes
-TH,CooperVision,Chokdee Optical,Present,https://www.chokedeeoptical.com/category/3680/coopervision,Yes
-TH,Olens,Chokdee Optical,Unverified,https://www.chokedeeoptical.com/category/3680/coopervision,Yes
-TH,Acuvue,Sornthai Optometrists,Present,https://sornthaioptometrists.com/en/shop-all/,Yes
-TH,Alcon,Sornthai Optometrists,Present,https://sornthaioptometrists.com/en/shop-all/,Yes
-TH,Bausch & Lomb,Sornthai Optometrists,Present,https://sornthaioptometrists.com/en/shop-all/,Yes
-TH,CooperVision,Sornthai Optometrists,Unverified,https://sornthaioptometrists.com/en/shop-all/,Yes
-TH,Olens,Sornthai Optometrists,Unverified,https://sornthaioptometrists.com/en/shop-all/,Yes
-TH,Acuvue,Watsons Thailand,Unverified,https://www.watsons.co.th/en/c/contactlens-rv,Yes
-TH,Alcon,Watsons Thailand,Unverified,https://www.watsons.co.th/en/c/contactlens-rv,Yes
-TH,Bausch & Lomb,Watsons Thailand,Present,https://www.watsons.co.th/en/c/contactlens-rv,Yes
-TH,CooperVision,Watsons Thailand,Unverified,https://www.watsons.co.th/en/c/contactlens-rv,Yes
-TH,Olens,Watsons Thailand,Unverified,https://www.watsons.co.th/en/c/contactlens-rv,Yes
-TH,Acuvue,Olens TH Flagship Stores,Absent,https://www.facebook.com/olensthofficial/,Yes
-TH,Alcon,Olens TH Flagship Stores,Absent,https://www.facebook.com/olensthofficial/,Yes
-TH,Bausch & Lomb,Olens TH Flagship Stores,Absent,https://www.facebook.com/olensthofficial/,Yes
-TH,CooperVision,Olens TH Flagship Stores,Absent,https://www.facebook.com/olensthofficial/,Yes
-TH,Olens,Olens TH Flagship Stores,Exclusive,https://www.facebook.com/olensthofficial/,Yes
-TH,Acuvue,Bausch+Lomb TH Corporate,Absent,https://www.bausch.co.th/,Yes
-TH,Alcon,Bausch+Lomb TH Corporate,Absent,https://www.bausch.co.th/,Yes
-TH,Bausch & Lomb,Bausch+Lomb TH Corporate,Exclusive,https://www.bausch.co.th/,Yes
-TH,CooperVision,Bausch+Lomb TH Corporate,Absent,https://www.bausch.co.th/,Yes
-TH,Olens,Bausch+Lomb TH Corporate,Absent,https://www.bausch.co.th/,Yes
-TH,Acuvue,Contacts Asia,Present,https://contactsasia.com/,No
-TH,Alcon,Contacts Asia,Present,https://contactsasia.com/,No
-TH,Bausch & Lomb,Contacts Asia,Present,https://contactsasia.com/,No
-TH,CooperVision,Contacts Asia,Present,https://contactsasia.com/,No
-TH,Olens,Contacts Asia,Unverified,https://contactsasia.com/,No

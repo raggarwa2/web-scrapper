@@ -40,19 +40,19 @@ movement across the Wave 6→Wave 7 window:
 
 ### 3. Purchase-channel-shift corroboration (directional, low volume)
 
-The client's own Wave 7 data shows overseas purchasing rising (18%→22%
+The reference Wave 7 research shows overseas purchasing rising (18%→22%
 overall, 30%→41% for new wearers, China as top source). We searched our own
 XHS and LIHKG text for organic mentions of overseas/forwarding-agent buying
 behavior (代購, 淘寶/Taobao, 集運/轉運, 天猫/Tmall, "overseas"): **12 mentions
 found** (11 XHS across CooperVision/Alcon/B&L/Olens, 1 LIHKG). This is a small
-but real signal pointing the same direction as the client's tracking data —
+but real signal pointing the same direction as the reference tracking data —
 present it as light corroboration, not independent proof; the volume is too
 low to stand alone.
 
 ## Bottom line for the deck
 
 Frame this section as "search demand trend + discount positioning +
-directional social corroboration," not "pricing trend" — the client's own
-Wave 6/7 data remains the authoritative source for actual purchasing-behavior
-trend lines (e.g. the market-of-purchase shift slides). Our external data's
-role here is corroboration, not replacement.
+directional social corroboration," not "pricing trend" — the reference
+Wave 6/7 research remains the authoritative source for actual
+purchasing-behavior trend lines (e.g. the market-of-purchase shift data).
+Our external data's role here is corroboration, not replacement.

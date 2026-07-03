@@ -2245,8 +2245,8 @@ with tab_research_triangulation:
     for pillar_tab, (label, content) in zip(pillar_tabs, triangulation_data.items()):
         with pillar_tab:
             st.caption(
-                "Checks our own scraped review/social data against the client's research-agency "
-                "slides (channel taxonomy, switching barriers, attribute-importance quadrant) "
+                "Checks our own scraped review/social data against the research framework "
+                "(channel taxonomy, switching barriers, attribute-importance quadrant) "
                 "described in insight.txt. External data only. Regenerate via "
                 "`python triangulation/run_triangulation.py` — see triangulation/README.md."
             )
@@ -2268,7 +2268,7 @@ with tab_research_triangulation:
                         "product_count": "Products scraped", "taxonomy_category": "",
                         "scraped_label": "",
                     },
-                    title="Channel coverage — products scraped per channel in the agency's taxonomy",
+                    title="Channel coverage — products scraped per channel in the reference taxonomy",
                     text="product_count",
                 )
                 fig_cc.update_layout(height=420, legend=dict(orientation="h", y=1.08))
@@ -2277,7 +2277,7 @@ with tab_research_triangulation:
                     "HKTVmall dominates by volume (777 products) since it's a marketplace "
                     "aggregating many independent sellers — the other 'Scraped' bars (CL online "
                     "shops, CL concept-shop platforms) are individual storefronts, not directly "
-                    "comparable 1:1 in scale. Red bars are agency-named channels with zero scraper "
+                    "comparable 1:1 in scale. Red bars are named channels with zero scraper "
                     "coverage today (Overseas platforms, FB/IG shops) or offline/physical retail "
                     "that a scraper structurally cannot reach."
                 )
