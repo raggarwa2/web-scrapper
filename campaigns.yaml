@@ -1,0 +1,7 @@
+# Campaign windows shaded on the Demand Signals chart (see demand_signals.py).
+# Schema per entry: brand, start_date, end_date, label, source_url.
+- brand: Acuvue
+  start_date: 2026-04-01
+  end_date: 2026-06-30
+  label: "HK New Wearer Trial (30-lens free trial + MyACUVUE signup)"
+  source_url: "https://www.acuvue.com/zh-hk/2026_Apr-Jun_IO_fitting_room/"

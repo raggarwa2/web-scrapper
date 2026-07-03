@@ -15,7 +15,7 @@ import pandas as pd
 import streamlit as st
 import yaml
 
-DEFAULT_TRENDS_DIR = os.path.join("Research", "Google Trend")
+DEFAULT_TRENDS_DIR = os.path.join("research", "Google Trend")
 DEFAULT_CAMPAIGNS_PATH = "campaigns.yaml"
 
 # Google Trends' "Alcon" search term is contaminated by Alcon Components, a
