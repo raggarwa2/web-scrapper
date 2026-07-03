@@ -308,7 +308,7 @@ _SITE_DISPLAY_NAMES = {
 }
 
 
-def _site_caption(df: pd.DataFrame, date_col: str = None, count_label: str = "items") -> str:
+def _site_caption(df: pd.DataFrame, date_col: str = None, count_label: str = "items", one_line: bool = False) -> str:
     """Build a 'Site · date range · count' caption string, one line per site.
 
     A bare min–max range reads as if coverage were roughly even across it,
@@ -339,7 +339,7 @@ def _site_caption(df: pd.DataFrame, date_col: str = None, count_label: str = "it
                 parts.append(f"**{display}** · {n:,} {count_label}")
         else:
             parts.append(f"**{display}** · {n:,} {count_label}")
-    return "  \n".join(parts)
+    return "   |   ".join(parts) if one_line else "  \n".join(parts)
 
 
 # ----------------------------------------------------------------------------
@@ -768,7 +768,7 @@ with tab_overview:
 # ---- Price Intelligence -----------------------------------------------------
 with tab_price:
     st.subheader("Price distribution by brand")
-    st.caption(_site_caption(products_f, count_label="products"))
+    st.caption(_site_caption(products_f, count_label="products", one_line=True))
     priced_f = products_f[products_f["selling_price"].notna()]
 
     _brands_with_subs = [b for b in selected_brands if b in _SUBBRAND_RULES]
