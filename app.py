@@ -2300,6 +2300,35 @@ with tab_research_triangulation:
                     "match today, which is the coverage gap this chart quantifies."
                 )
 
+            if label == "Barrier Matches" and not content["csv"].empty:
+                bm = content["csv"]
+                _barrier_colors = {**BRAND_COLORS, "other": "#94a3b8"}
+                barrier_order = (
+                    bm.groupby("barrier")["match_count"].sum().sort_values(ascending=False).index.tolist()
+                )
+                brand_order = (
+                    bm.groupby("brand")["match_count"].sum().sort_values(ascending=False).index.tolist()
+                )
+                fig_bm = px.scatter(
+                    bm, x="barrier", y="brand", size="match_count", color="brand",
+                    color_discrete_map=_barrier_colors,
+                    category_orders={"barrier": barrier_order, "brand": brand_order},
+                    size_max=45,
+                    labels={"barrier": "Switching barrier", "brand": "Brand", "match_count": "Matches"},
+                    hover_data={"match_count": True, "brand": False},
+                )
+                fig_bm.update_layout(
+                    height=480, xaxis_tickangle=-35, showlegend=False,
+                    margin=dict(b=140),
+                )
+                st.plotly_chart(fig_bm, width="stretch")
+                st.caption(
+                    "Bubble size = number of matched reviews/posts. Barriers (x-axis) sorted by total "
+                    "matches across all brands, left to right; brands (y-axis) sorted by total matches, "
+                    "top to bottom. 'other' = text that mentioned a brand keyword without attributing "
+                    "to one of the 5 tracked brands specifically."
+                )
+
             if label == "External Validation" and not content["csv"].empty:
                 ev = content["csv"]
                 _agreement_display = {"Match": "✅ Match", "Partial": "⚠️ Partial", "Diverge": "❌ Diverge"}
