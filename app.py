@@ -2641,6 +2641,21 @@ with tab_research_triangulation:
                         for r in group.head(3).itertuples():
                             st.markdown(f"- [{r.summary}]({r.source_url})" if r.source_url else f"- {r.summary}")
 
+                    st.markdown("**Qualitative appendix — representative verbatim praise (5-star)**")
+                    st.caption(
+                        "Same categorization, applied to 5-star reviews instead of the low-rating scope "
+                        "above — what to lean into in messaging, not just what to fix. 'unclear / "
+                        "insufficient detail' is excluded as non-informative."
+                    )
+                    pos_f = negative_tail_reviews[
+                        (negative_tail_reviews["rating"] == 5)
+                        & (negative_tail_reviews["category"] != "unclear / insufficient detail")
+                    ]
+                    for (brand, category), group in pos_f[pos_f["summary"].notna()].groupby(["brand", "category"]):
+                        st.markdown(f"_{brand} — {category}_")
+                        for r in group.head(3).itertuples():
+                            st.markdown(f"- [{r.summary}]({r.source_url})" if r.source_url else f"- {r.summary}")
+
                     st.markdown("**Polarization candidates — complaints that are ALSO praised elsewhere**")
                     attr_df = triangulation_data.get("Attribute Quadrant", {}).get("csv", pd.DataFrame())
                     candidates_found = False
