@@ -1218,6 +1218,7 @@ with tab_reviews_sentiment:
                     else:
                         sub_view_brand = st.selectbox(
                             "Brand", _sub_brand_options, label_visibility="visible",
+                            key="sub_brand_view_pick",
                         )
                         _subs_for_brand = _SUBBRAND_LISTS[sub_view_brand] + ["Other"]
 
@@ -2867,7 +2868,8 @@ with tab_trends_demand:
         _demand_brand_options = sorted(set(all_brands) | demand_signals.RELIABLE_BRANDS)
         _demand_default = "Acuvue" if "Acuvue" in _demand_brand_options else _demand_brand_options[0]
         demand_brand = st.selectbox(
-            "Brand", _demand_brand_options, index=_demand_brand_options.index(_demand_default)
+            "Brand", _demand_brand_options, index=_demand_brand_options.index(_demand_default),
+            key="demand_signals_brand_pick",
         )
 
         if not demand_signals.classify_trend_reliability(demand_brand):
