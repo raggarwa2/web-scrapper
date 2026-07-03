@@ -2520,19 +2520,40 @@ with tab_research_triangulation:
                     st.plotly_chart(fig4, width="stretch")
 
             if label == "Negative Tail" and not negative_tail_reviews.empty:
-                max_rating = st.slider(
-                    "Include reviews rated ≤", min_value=1, max_value=5, value=1,
-                    key="negtail_rating_slider",
-                    help="1 = the classic 'negative tail' (1-star only). Slide up to see how the "
-                         "complaint mix changes as more moderate reviews are included.",
+                tail_direction = st.radio(
+                    "Analysis direction", ["Complaints (low ratings)", "Praise (high ratings)"],
+                    horizontal=True, key="negtail_direction",
                 )
-                neg_f = negative_tail_reviews[negative_tail_reviews["rating"] <= max_rating]
-                total_in_scope = len(neg_f)
-                st.caption(
-                    f"{total_in_scope} HK reviews rated ≤{max_rating} stars in scope — a small base "
-                    "if this number is low. Brands with an asterisk (*) below have fewer than "
-                    f"{NEGATIVE_TAIL_SMALL_BASE} reviews in scope and should be read as directional only."
-                )
+                is_positive = tail_direction == "Praise (high ratings)"
+
+                if is_positive:
+                    edge_rating = st.slider(
+                        "Include reviews rated ≥", min_value=1, max_value=5, value=5,
+                        key="postail_rating_slider",
+                        help="5 = the classic 'positive tail' (5-star only). Slide down to see how the "
+                             "praise mix changes as more moderate reviews are included.",
+                    )
+                    neg_f = negative_tail_reviews[negative_tail_reviews["rating"] >= edge_rating]
+                    total_in_scope = len(neg_f)
+                    st.caption(
+                        f"{total_in_scope} HK reviews rated ≥{edge_rating} stars in scope — a small base "
+                        "if this number is low. Brands with an asterisk (*) below have fewer than "
+                        f"{NEGATIVE_TAIL_SMALL_BASE} reviews in scope and should be read as directional only."
+                    )
+                else:
+                    edge_rating = st.slider(
+                        "Include reviews rated ≤", min_value=1, max_value=5, value=1,
+                        key="negtail_rating_slider",
+                        help="1 = the classic 'negative tail' (1-star only). Slide up to see how the "
+                             "complaint mix changes as more moderate reviews are included.",
+                    )
+                    neg_f = negative_tail_reviews[negative_tail_reviews["rating"] <= edge_rating]
+                    total_in_scope = len(neg_f)
+                    st.caption(
+                        f"{total_in_scope} HK reviews rated ≤{edge_rating} stars in scope — a small base "
+                        "if this number is low. Brands with an asterisk (*) below have fewer than "
+                        f"{NEGATIVE_TAIL_SMALL_BASE} reviews in scope and should be read as directional only."
+                    )
                 with st.expander("What's in each category? (see note on the three catch-all buckets)"):
                     st.markdown(
                         "The six specific categories (product mismatch/counterfeit, comfort/dryness, "
@@ -2562,7 +2583,8 @@ with tab_research_triangulation:
                 else:
                     present_categories = [c for c in NEGATIVE_TAIL_CATEGORY_ORDER if c in breakdown_live["category"].unique()]
 
-                    st.markdown("**Complaint rate by brand (% of that brand's own reviews in scope)**")
+                    _rate_label = "Praise rate by brand" if is_positive else "Complaint rate by brand"
+                    st.markdown(f"**{_rate_label} (% of that brand's own reviews in scope)**")
                     st.caption(
                         "Each panel is normalized to that brand's own review count, so brands are "
                         "comparable regardless of how many reviews they have. Panels for brands with "
@@ -2618,7 +2640,7 @@ with tab_research_triangulation:
                         x="category", y="count", color="brand",
                         barmode="group", color_discrete_map=BRAND_COLORS,
                         category_orders={"category": present_categories},
-                        labels={"category": "Complaint category", "count": "Reviews"},
+                        labels={"category": "Praise category" if is_positive else "Complaint category", "count": "Reviews"},
                     )
                     fig3.update_layout(height=480, xaxis_tickangle=-20)
                     st.plotly_chart(fig3, width="stretch")
@@ -2635,52 +2657,39 @@ with tab_research_triangulation:
                     )
                     st.caption(f"* small-base brand (under {NEGATIVE_TAIL_SMALL_BASE} reviews in scope) — directional only.")
 
-                    st.markdown("**Qualitative appendix — representative paraphrased complaints**")
+                    _appendix_label = "representative verbatim praise" if is_positive else "representative paraphrased complaints"
+                    st.markdown(f"**Qualitative appendix — {_appendix_label}**")
                     for (brand, category), group in neg_f[neg_f["summary"].notna()].groupby(["brand", "category"]):
                         st.markdown(f"_{brand} — {category}_")
                         for r in group.head(3).itertuples():
                             st.markdown(f"- [{r.summary}]({r.source_url})" if r.source_url else f"- {r.summary}")
 
-                    st.markdown("**Qualitative appendix — representative verbatim praise (5-star)**")
-                    st.caption(
-                        "Same categorization, applied to 5-star reviews instead of the low-rating scope "
-                        "above — what to lean into in messaging, not just what to fix. 'unclear / "
-                        "insufficient detail' is excluded as non-informative."
-                    )
-                    pos_f = negative_tail_reviews[
-                        (negative_tail_reviews["rating"] == 5)
-                        & (negative_tail_reviews["category"] != "unclear / insufficient detail")
-                    ]
-                    for (brand, category), group in pos_f[pos_f["summary"].notna()].groupby(["brand", "category"]):
-                        st.markdown(f"_{brand} — {category}_")
-                        for r in group.head(3).itertuples():
-                            st.markdown(f"- [{r.summary}]({r.source_url})" if r.source_url else f"- {r.summary}")
-
-                    st.markdown("**Polarization candidates — complaints that are ALSO praised elsewhere**")
-                    attr_df = triangulation_data.get("Attribute Quadrant", {}).get("csv", pd.DataFrame())
-                    candidates_found = False
-                    if not attr_df.empty:
-                        for brand, brand_df in breakdown_live.groupby("brand"):
-                            for category in set(brand_df.nlargest(2, "count")["category"]):
-                                attribute = NEGATIVE_TAIL_TO_ATTRIBUTE.get(category)
-                                if not attribute:
-                                    continue
-                                match = attr_df[
-                                    (attr_df["brand"] == brand) & (attr_df["attribute"] == attribute)
-                                    & (attr_df["sentiment"] == "positive")
-                                ]
-                                positive_mentions = int(match["mentions"].sum()) if not match.empty else 0
-                                if positive_mentions >= NEGATIVE_TAIL_POLARIZATION_MIN_POSITIVE:
-                                    candidates_found = True
-                                    row = brand_df[brand_df["category"] == category].iloc[0]
-                                    st.markdown(
-                                        f"- {brand}: \"{category}\" is a top complaint ({int(row['count'])} reviews, "
-                                        f"{row['pct_of_brand']}% in scope) — but \"{attribute}\" also gets "
-                                        f"{positive_mentions} positive mentions elsewhere (Attribute Quadrant). "
-                                        "Possible polarizing attribute."
-                                    )
-                    if not candidates_found:
-                        st.caption("None found at this rating cutoff.")
+                    if not is_positive:
+                        st.markdown("**Polarization candidates — complaints that are ALSO praised elsewhere**")
+                        attr_df = triangulation_data.get("Attribute Quadrant", {}).get("csv", pd.DataFrame())
+                        candidates_found = False
+                        if not attr_df.empty:
+                            for brand, brand_df in breakdown_live.groupby("brand"):
+                                for category in set(brand_df.nlargest(2, "count")["category"]):
+                                    attribute = NEGATIVE_TAIL_TO_ATTRIBUTE.get(category)
+                                    if not attribute:
+                                        continue
+                                    match = attr_df[
+                                        (attr_df["brand"] == brand) & (attr_df["attribute"] == attribute)
+                                        & (attr_df["sentiment"] == "positive")
+                                    ]
+                                    positive_mentions = int(match["mentions"].sum()) if not match.empty else 0
+                                    if positive_mentions >= NEGATIVE_TAIL_POLARIZATION_MIN_POSITIVE:
+                                        candidates_found = True
+                                        row = brand_df[brand_df["category"] == category].iloc[0]
+                                        st.markdown(
+                                            f"- {brand}: \"{category}\" is a top complaint ({int(row['count'])} reviews, "
+                                            f"{row['pct_of_brand']}% in scope) — but \"{attribute}\" also gets "
+                                            f"{positive_mentions} positive mentions elsewhere (Attribute Quadrant). "
+                                            "Possible polarizing attribute."
+                                        )
+                        if not candidates_found:
+                            st.caption("None found at this rating cutoff.")
 
                 st.download_button(
                     "Download negative_tail_reviews.csv (all ratings, raw)",
