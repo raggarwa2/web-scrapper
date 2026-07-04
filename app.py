@@ -72,7 +72,7 @@ BRAND_COLORS = {
     "Olens": "#db2777",
 }
 
-_SITES_DISPLAY = "HKTVmall · 393lens · Sorra · Xiaohongshu (customer feedback) · LIHKG (customer signals)"
+_SITES_DISPLAY = "HKTVmall · 393lens · Sorra · WateryEyes · Xiaohongshu (customer feedback) · LIHKG (customer signals)"
 
 DEFAULT_DB_PATH = os.path.join("output", "lensdata.db")
 
@@ -116,6 +116,11 @@ def load_data(db_path: str):
             pd.to_numeric(xhs["publish_date"], errors="coerce"), unit="s", errors="coerce"
         )
         xhs["themes_list"] = xhs["themes"].apply(parse_themes)
+        # xhs_posts.brand_mentioned stores Olens as "OLENS" (all caps) — every other
+        # brand-matching column in the app (products.brand, lihkg mentioned_brands,
+        # selected_brands) uses "Olens". Left uncorrected, every `.isin(selected_brands)`
+        # filter elsewhere in this file silently drops all Olens XHS posts (279 rows).
+        xhs["brand_mentioned"] = xhs["brand_mentioned"].replace({"OLENS": "Olens"})
 
     if not xhs_comments.empty:
         xhs_comments["themes_list"] = xhs_comments["themes"].apply(parse_themes)
@@ -188,6 +193,22 @@ NEGATIVE_TAIL_CATEGORY_ORDER = [
     "quality/defect (other)",
     "unclear / insufficient detail",
     "no complaint / positive feedback",
+]
+# Praise gets its own taxonomy rather than reusing the complaint labels above —
+# "product mismatch/counterfeit concern" or "quality/defect (other)" read as
+# complaints even applied to a 5-star review. See PRAISE_CATEGORIES in
+# triangulation/negative_tail_analysis.py, which this mirrors.
+PRAISE_TAIL_CATEGORY_ORDER = [
+    "authenticity / genuine product",
+    "comfort",
+    "shipping/fulfillment",
+    "customer service",
+    "packaging",
+    "value for money",
+    "quality/reliability (other)",
+    "unclear / insufficient detail",
+    "general satisfaction / no specific theme",
+    "no praise / negative review",
 ]
 NEGATIVE_TAIL_SMALL_BASE = 15  # per-brand review count below this = directional only
 XHS_SMALL_BASE_THRESHOLD = 200  # matches triangulation/share_of_voice.py's XHS_SMALL_BASE_THRESHOLD
@@ -300,11 +321,12 @@ def weighted_rating(df: pd.DataFrame) -> float:
 
 
 _SITE_DISPLAY_NAMES = {
-    "hktvmall":  "HKTVmall",
-    "393lens":   "393lens",
-    "sorra":     "Sorra",
-    "ta_to":     "ta-to",
-    "lazada_th": "Lazada TH",
+    "hktvmall":    "HKTVmall",
+    "393lens":     "393lens",
+    "sorra":       "Sorra",
+    "ta_to":       "ta-to",
+    "lazada_th":   "Lazada TH",
+    "watery_eyes": "WateryEyes",
 }
 
 
@@ -417,10 +439,12 @@ st.sidebar.caption(
     f"Database last updated:\n{datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')}"
 )
 _xhs_attributed = xhs[xhs["brand_mentioned"].notna() & (xhs["brand_mentioned"] != "other")]
+_total_content = len(reviews) + len(xhs) + len(xhs_comments) + len(lihkg_df)
+st.sidebar.markdown(f"**{_total_content:,} pieces of consumer content analyzed**")
 st.sidebar.caption(
     f"{len(products)} products \u00b7 {len(reviews)} reviews \u00b7 "
     f"{len(xhs)} XHS posts ({len(_xhs_attributed)} brand-attributed) \u00b7 "
-    f"{len(xhs_comments)} XHS comments"
+    f"{len(xhs_comments)} XHS comments \u00b7 {len(lihkg_df)} LIHKG posts"
 )
 
 products_f = products[
@@ -692,7 +716,7 @@ def _is_new_wearer_review(text):
         return False
     return bool(_NEW_WEARER_POS_RE.search(text)) and not _NEW_WEARER_NEG_RE.search(text)
 
-tab_overview, tab_price, tab_reviews_sentiment, tab_social_signals, tab_catalog, tab_research_triangulation, tab_trends_demand, tab_notes = st.tabs(
+tab_overview, tab_price, tab_reviews_sentiment, tab_social_signals, tab_catalog, tab_research_triangulation, tab_trends_demand, tab_brand_health, tab_notes = st.tabs(
     [
         "Brand Overview",
         "Price Intelligence",
@@ -701,6 +725,7 @@ tab_overview, tab_price, tab_reviews_sentiment, tab_social_signals, tab_catalog,
         "Catalog Explorer",
         "Research & Triangulation",
         "Trends & Demand",
+        "Brand Health",
         "Data Notes",
     ]
 )
@@ -2557,21 +2582,51 @@ with tab_research_triangulation:
                         "if this number is low. Brands with an asterisk (*) below have fewer than "
                         f"{NEGATIVE_TAIL_SMALL_BASE} reviews in scope and should be read as directional only."
                     )
-                with st.expander("What's in each category? (see note on the three catch-all buckets)"):
-                    st.markdown(
-                        "The six specific categories (product mismatch/counterfeit, comfort/dryness, "
-                        "shipping/fulfillment, customer service, packaging, price) are reviews that "
-                        "clearly named one of those issues. Everything else — reviews that don't fit "
-                        "any of those six — used to be lumped into one generic **\"other\"** bucket. "
-                        "That bucket has been split into three more specific ones so \"other\" doesn't "
-                        "hide what's actually going on:\n"
-                        "- **quality/defect (other)** — a real complaint (defect, fit, prescription, "
-                        "general quality) that isn't one of the six named issues above.\n"
-                        "- **no complaint / positive feedback** — a happy review with nothing wrong "
-                        "reported. Mostly shows up as you raise the rating slider above 1-2 stars.\n"
-                        "- **unclear / insufficient detail** — blank, one-word, or otherwise "
-                        "uninformative text that doesn't give a usable signal either way."
-                    )
+                if is_positive:
+                    with st.expander("What's in each category?"):
+                        st.markdown(
+                            "Praise uses its own category wording rather than reusing the complaint "
+                            "labels — a category like \"product mismatch/counterfeit concern\" reads as "
+                            "a complaint even when it's really a 5-star review confirming the product is "
+                            "genuine, so praise is classified separately:\n"
+                            "- **authenticity / genuine product** — confirms it's the real thing, not a "
+                            "counterfeit.\n"
+                            "- **comfort** — comfortable to wear, no dryness/irritation.\n"
+                            "- **shipping/fulfillment**, **customer service**, **packaging** — same "
+                            "topics as the complaint view, praised instead.\n"
+                            "- **value for money** — good price/value called out specifically.\n"
+                            "- **quality/reliability (other)** — a real positive (fit, prescription, "
+                            "general quality) that isn't one of the named topics above.\n"
+                            "- **general satisfaction / no specific theme** — happy overall but doesn't "
+                            "call out a specific thing they liked.\n"
+                            "- **no praise / negative review** — a review with nothing positive to "
+                            "report. Shows up as you lower the rating cutoff below 5 stars.\n"
+                            "- **unclear / insufficient detail** — blank, one-word, or otherwise "
+                            "uninformative text."
+                        )
+                else:
+                    with st.expander("What's in each category? (see note on the three catch-all buckets)"):
+                        st.markdown(
+                            "The six specific categories (product mismatch/counterfeit, comfort/dryness, "
+                            "shipping/fulfillment, customer service, packaging, price) are reviews that "
+                            "clearly named one of those issues. Everything else — reviews that don't fit "
+                            "any of those six — used to be lumped into one generic **\"other\"** bucket. "
+                            "That bucket has been split into three more specific ones so \"other\" doesn't "
+                            "hide what's actually going on:\n"
+                            "- **quality/defect (other)** — a real complaint (defect, fit, prescription, "
+                            "general quality) that isn't one of the six named issues above.\n"
+                            "- **no complaint / positive feedback** — a happy review with nothing wrong "
+                            "reported. Mostly shows up as you raise the rating slider above 1-2 stars.\n"
+                            "- **unclear / insufficient detail** — blank, one-word, or otherwise "
+                            "uninformative text that doesn't give a usable signal either way."
+                        )
+
+                if is_positive:
+                    # Praise is classified on its own taxonomy (praise_category), independent
+                    # of the complaint "category" column — swap it in here so the rest of this
+                    # block (which all reads "category") works unchanged for either direction.
+                    neg_f = neg_f.copy()
+                    neg_f["category"] = neg_f["praise_category"]
 
                 brand_totals = neg_f.groupby("brand").size()
                 breakdown_live = (
@@ -2584,7 +2639,8 @@ with tab_research_triangulation:
                 if breakdown_live.empty:
                     st.info("No reviews in scope at this rating cutoff.")
                 else:
-                    present_categories = [c for c in NEGATIVE_TAIL_CATEGORY_ORDER if c in breakdown_live["category"].unique()]
+                    _category_order = PRAISE_TAIL_CATEGORY_ORDER if is_positive else NEGATIVE_TAIL_CATEGORY_ORDER
+                    present_categories = [c for c in _category_order if c in breakdown_live["category"].unique()]
 
                     _rate_label = "Praise rate by brand" if is_positive else "Complaint rate by brand"
                     st.markdown(f"**{_rate_label} (% of that brand's own reviews in scope)**")
@@ -3309,6 +3365,240 @@ with tab_trends_demand:
                             }),
                             width="stretch", hide_index=True, height=350,
                         )
+
+# ---- Brand Health -----------------------------------------------------------
+with tab_brand_health:
+    st.subheader("Brand Health — composite score across Reviews, Social & Forum signals")
+    st.markdown(
+        """
+        <div class="caveat-box">
+        <b>How this score is built:</b> each brand gets a single 0-100 composite score
+        blending three sentiment sources — <b>Reviews</b> (star-rating based, includes
+        HKTVmall/393lens/Sorra/ta-to/Lazada TH/WateryEyes), <b>XHS</b> (LLM-labeled post
+        sentiment), and <b>LIHKG</b> (LLM-labeled forum-post sentiment). Each source is
+        weighted by &radic;n so a large review base doesn't drown out a thinner one, but a
+        source with fewer than 5 qualifying items for a brand is excluded entirely rather
+        than let a tiny sample swing the score — excluded sources are shown on each card.
+        LIHKG posts carry no absolute date, so LIHKG is a snapshot only and is left out of
+        the monthly trend chart below. Rows with dirty/unparseable sentiment values
+        (<code>"warning"</code>, <code>"please refer to the original text"</code>) and LIHKG
+        posts from known keyword-collision categories (cars/sports — same "Alcon"/"Olens"
+        generic-word problem documented in the Social Signals and Trends &amp; Demand tabs)
+        are excluded from scoring. Google Trends demand/buzz is shown separately, not
+        blended into the score, since it measures search volume rather than sentiment and
+        is only verified clean for Acuvue today.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    MIN_N_FOR_SOURCE = 5
+    _VALID_SENTIMENTS = ["positive", "neutral", "negative"]
+
+    def _source_pos_pct(sub_df: pd.DataFrame, sentiment_col: str = "sentiment"):
+        """(pos_pct, n) for a dataframe already filtered to one brand/source, using
+        only valid sentiment labels. Returns (None, 0) if there's nothing usable."""
+        if sub_df.empty or sentiment_col not in sub_df.columns:
+            return None, 0
+        valid = sub_df[sub_df[sentiment_col].isin(_VALID_SENTIMENTS)]
+        n = len(valid)
+        if n == 0:
+            return None, 0
+        return (valid[sentiment_col] == "positive").mean() * 100, n
+
+    # Reviews sentiment — same rating-derived rule as the Reviews & Sentiment tab.
+    rev_bh = reviews_f.dropna(subset=["rating"]).copy()
+    rev_bh = rev_bh[rev_bh["rating"] > 0]
+    rev_bh["sentiment"] = rev_bh["rating"].apply(
+        lambda r: "positive" if r >= 4 else ("neutral" if r == 3 else "negative")
+    )
+
+    # XHS sentiment — brand-attributed posts only ("other" already excluded by isin).
+    xhs_bh = xhs[xhs["brand_mentioned"].isin(selected_brands)].copy() if not xhs.empty else pd.DataFrame()
+
+    # LIHKG sentiment — brand-exploded, known keyword-collision categories excluded
+    # from scoring (still visible, unfiltered, in the Social Signals tab).
+    if not lihkg_df.empty:
+        lihkg_bh = lihkg_signals.brand_exploded(lihkg_df)
+        lihkg_bh = lihkg_bh[
+            lihkg_bh["mentioned_brands_list"].isin(selected_brands) & (~lihkg_bh["likely_collision"])
+        ]
+    else:
+        lihkg_bh = pd.DataFrame()
+
+    def _brand_score(brand: str):
+        components = []  # list of (label, pos_pct, n)
+        pos, n = _source_pos_pct(rev_bh[rev_bh["brand"] == brand])
+        if pos is not None and n >= MIN_N_FOR_SOURCE:
+            components.append(("Reviews", pos, n))
+        xb_ = xhs_bh[xhs_bh["brand_mentioned"] == brand] if not xhs_bh.empty else pd.DataFrame()
+        pos, n = _source_pos_pct(xb_)
+        if pos is not None and n >= MIN_N_FOR_SOURCE:
+            components.append(("XHS", pos, n))
+        lb_ = lihkg_bh[lihkg_bh["mentioned_brands_list"] == brand] if not lihkg_bh.empty else pd.DataFrame()
+        pos, n = _source_pos_pct(lb_)
+        if pos is not None and n >= MIN_N_FOR_SOURCE:
+            components.append(("LIHKG", pos, n))
+
+        if not components:
+            return None, components
+        weights = [n ** 0.5 for _, _, n in components]
+        score = sum(pos * w for (_, pos, _), w in zip(components, weights)) / sum(weights)
+        return score, components
+
+    brand_scores = {b: dict(zip(("score", "components"), _brand_score(b))) for b in selected_brands}
+
+    st.markdown("#### All Brands Overview")
+    if not selected_brands:
+        st.info("No brands selected.")
+    else:
+        cols = st.columns(min(len(selected_brands), 5))
+        for i, b in enumerate(selected_brands):
+            info = brand_scores[b]
+            bc = BRAND_COLORS.get(b, "#2563eb")
+            with cols[i % len(cols)]:
+                if info["score"] is None:
+                    st.markdown(
+                        f"""<div style="background:#f8f9fb;border:1px solid #e6e6e6;border-radius:12px;
+                            padding:16px 20px;margin-bottom:14px;min-height:150px;">
+                            <div style="color:{bc};font-weight:700;font-size:0.85rem;
+                                        letter-spacing:0.07em;text-transform:uppercase;">{b}</div>
+                            <div style="color:#888;font-size:0.82rem;margin-top:10px;">
+                            Insufficient data — no source has &ge;{MIN_N_FOR_SOURCE} qualifying items</div>
+                            </div>""",
+                        unsafe_allow_html=True,
+                    )
+                    continue
+                score = info["score"]
+                score_color = "#16a34a" if score >= 65 else ("#e8a33d" if score >= 45 else "#dc2626")
+                breakdown = " · ".join(f"{label} {pos:.0f}% (n={n})" for label, pos, n in info["components"])
+                present = {label for label, _, _ in info["components"]}
+                excluded = [s for s in ("Reviews", "XHS", "LIHKG") if s not in present]
+                excluded_note = f"excluded: {', '.join(excluded)} (n&lt;{MIN_N_FOR_SOURCE})" if excluded else "&nbsp;"
+                st.markdown(
+                    f"""<div style="background:#f8f9fb;border:1px solid #e6e6e6;border-radius:12px;
+                        padding:16px 20px;margin-bottom:14px;min-height:150px;">
+                        <div style="color:{bc};font-weight:700;font-size:0.85rem;
+                                    letter-spacing:0.07em;text-transform:uppercase;">{b}</div>
+                        <div style="font-size:2rem;font-weight:800;color:{score_color};margin:6px 0;">
+                            {score:.0f}</div>
+                        <div style="color:#555;font-size:0.78rem;">{breakdown}</div>
+                        <div style="color:#aaa;font-size:0.72rem;margin-top:4px;">{excluded_note}</div>
+                        </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        rank_rows = [{"Brand": b, "Health Score": info["score"]} for b, info in brand_scores.items() if info["score"] is not None]
+        if rank_rows:
+            rank_df = pd.DataFrame(rank_rows).sort_values("Health Score", ascending=False)
+            fig = px.bar(
+                rank_df, x="Brand", y="Health Score", color="Brand",
+                color_discrete_map=BRAND_COLORS, range_y=[0, 100],
+                title="Composite Brand Health Score",
+            )
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, width='stretch')
+
+    st.divider()
+
+    st.markdown("#### Brand Deep-Dive")
+    if not selected_brands:
+        st.info("No brands selected.")
+    else:
+        dd_brand = st.selectbox("Brand", selected_brands, key="brand_health_deep_dive")
+        info = brand_scores.get(dd_brand, {"score": None, "components": []})
+
+        if not info["components"]:
+            st.info(f"Not enough data across any source to score {dd_brand}.")
+        else:
+            comp_map = {label: (pos, n) for label, pos, n in info["components"]}
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Composite Score", f"{info['score']:.0f}")
+            for col, label in zip((m2, m3, m4), ("Reviews", "XHS", "LIHKG")):
+                if label in comp_map:
+                    pos, n = comp_map[label]
+                    col.metric(f"{label} % positive", f"{pos:.0f}%", help=f"n={n}")
+                else:
+                    col.metric(f"{label} % positive", "n/a", help=f"fewer than {MIN_N_FOR_SOURCE} qualifying items")
+
+            st.markdown("**Monthly sentiment trend — Reviews & XHS** (LIHKG excluded — no absolute post dates)")
+            trend_frames = []
+            rb = rev_bh[rev_bh["brand"] == dd_brand].dropna(subset=["review_date"]).copy()
+            if not rb.empty:
+                rb["month"] = rb["review_date"].dt.to_period("M").astype(str)
+                g = rb.groupby("month")["sentiment"].apply(lambda s: (s == "positive").mean() * 100).reset_index(name="pct")
+                g["source"] = "Reviews"
+                trend_frames.append(g)
+            xb = xhs_bh[xhs_bh["brand_mentioned"] == dd_brand].dropna(subset=["publish_date"]).copy() if not xhs_bh.empty else pd.DataFrame()
+            if not xb.empty:
+                xb = xb[xb["sentiment"].isin(_VALID_SENTIMENTS)]
+                xb["month"] = xb["publish_date"].dt.to_period("M").astype(str)
+                g = xb.groupby("month")["sentiment"].apply(lambda s: (s == "positive").mean() * 100).reset_index(name="pct")
+                g["source"] = "XHS"
+                trend_frames.append(g)
+
+            if trend_frames:
+                trend_df = pd.concat(trend_frames, ignore_index=True)
+                fig = px.line(
+                    trend_df, x="month", y="pct", color="source", markers=True,
+                    labels={"pct": "% positive", "month": "", "source": "Source"},
+                    title=f"{dd_brand} — % Positive Sentiment by Month",
+                )
+                fig.update_yaxes(range=[0, 105], ticksuffix="%")
+                fig.update_xaxes(tickangle=-45)
+                st.plotly_chart(fig, width='stretch')
+            else:
+                st.info("No dated Reviews or XHS data for this brand in the current filter.")
+
+            st.markdown("**Why customers hesitate — combined LIHKG + XHS signal**")
+            barrier_cols = st.columns(2)
+            with barrier_cols[0]:
+                st.caption("LIHKG posts flagged as a purchase-barrier signal")
+                lb = lihkg_bh[lihkg_bh["mentioned_brands_list"] == dd_brand] if not lihkg_bh.empty else pd.DataFrame()
+                lb_barrier = lb[lb["is_purchase_barrier_signal"] == 1] if not lb.empty else pd.DataFrame()
+                if lb_barrier.empty:
+                    st.info("None found (or LIHKG excluded for this brand — see card above).")
+                else:
+                    st.dataframe(
+                        lb_barrier[["text_english", "sentiment"]].rename(
+                            columns={"text_english": "Post (EN)", "sentiment": "Sentiment"}
+                        ),
+                        width='stretch', hide_index=True, height=250,
+                    )
+            with barrier_cols[1]:
+                st.caption("XHS negative-sentiment posts")
+                xb_neg = xb[xb["sentiment"] == "negative"].copy() if not xb.empty else pd.DataFrame()
+                if xb_neg.empty:
+                    st.info("None found in current filter.")
+                else:
+                    xb_neg["themes_joined"] = xb_neg["themes_list"].apply(
+                        lambda lst: ", ".join(lst) if isinstance(lst, list) else ""
+                    )
+                    st.dataframe(
+                        xb_neg[["content_en", "themes_joined"]].rename(
+                            columns={"content_en": "Post (EN)", "themes_joined": "Themes"}
+                        ),
+                        width='stretch', hide_index=True, height=250,
+                    )
+
+            st.markdown("**Demand / buzz signal**")
+            if not demand_signals.classify_trend_reliability(dd_brand):
+                st.caption(
+                    f"⚠ Google Trends data for {dd_brand} is not verified clean (generic-word "
+                    "collision risk) — excluded here. See Trends & Demand tab."
+                )
+            else:
+                monthly_search = demand_signals.aggregate_monthly_search_index(dd_brand, trends_dir)
+                if monthly_search.empty:
+                    st.info(f"No Google Trends timeline found for {dd_brand}.")
+                else:
+                    monthly_reviews_d = demand_signals.get_monthly_review_counts(dd_brand, db_path)
+                    alerts = demand_signals.find_divergence_alerts(monthly_search, monthly_reviews_d)
+                    if not alerts:
+                        st.info("No search-vs-review divergence detected for this brand.")
+                    else:
+                        for a in alerts[-3:]:
+                            st.warning(a["text"])
 
 # ---- Data Notes ------------------------------------------------------------
 with tab_notes:
