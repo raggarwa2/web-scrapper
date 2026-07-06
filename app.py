@@ -2632,6 +2632,52 @@ with tab_research_triangulation:
                     "to one of the 5 tracked brands specifically."
                 )
 
+            if label == "Attribute Quadrant" and not content["csv"].empty:
+                aq = content["csv"]
+                aq_pivot = (
+                    aq.pivot_table(
+                        index=["brand", "attribute"], columns="sentiment", values="mentions",
+                        aggfunc="sum", fill_value=0,
+                    ).reset_index()
+                )
+                for _s in ["positive", "negative", "neutral"]:
+                    if _s not in aq_pivot.columns:
+                        aq_pivot[_s] = 0
+                aq_pivot["total_mentions"] = aq_pivot["positive"] + aq_pivot["negative"] + aq_pivot["neutral"]
+                aq_pivot["net_sentiment_pct"] = (
+                    (aq_pivot["positive"] - aq_pivot["negative"]) / aq_pivot["total_mentions"] * 100
+                ).round(1)
+
+                _attr_colors = {**BRAND_COLORS, "other": "#94a3b8"}
+                attribute_order = (
+                    aq_pivot.groupby("attribute")["total_mentions"].sum().sort_values(ascending=False).index.tolist()
+                )
+                brand_order = (
+                    aq_pivot.groupby("brand")["total_mentions"].sum().sort_values(ascending=False).index.tolist()
+                )
+                fig_aq = px.scatter(
+                    aq_pivot, x="attribute", y="brand", size="total_mentions", color="brand",
+                    color_discrete_map=_attr_colors,
+                    category_orders={"attribute": attribute_order, "brand": brand_order},
+                    size_max=45,
+                    labels={"attribute": "Attribute", "brand": "Brand", "total_mentions": "Mentions"},
+                    hover_data={"total_mentions": True, "net_sentiment_pct": ":.0f", "brand": False},
+                )
+                fig_aq.update_layout(
+                    height=520, xaxis_tickangle=-35, showlegend=False,
+                    margin=dict(b=160),
+                )
+                st.plotly_chart(fig_aq, width="stretch")
+                st.caption(
+                    "Bubble size = total mentions (all sentiment) per brand x attribute, from the Prompt C "
+                    "attribute-importance framework (insight.txt's Kano-style quadrants — Basic Requirements, "
+                    "Key Drivers, Low Importance, Potential Differentiators — see the 'quadrant' column in "
+                    "the table below). Attributes (x-axis) sorted by total mentions across all brands, left "
+                    "to right; brands (y-axis) sorted by total mentions, top to bottom. Hover a bubble for "
+                    "net sentiment (% positive − % negative of that bubble's mentions). 'other' = text that "
+                    "mentioned a brand keyword without attributing to one of the 5 tracked brands specifically."
+                )
+
             if label == "External Validation" and not content["csv"].empty:
                 ev = content["csv"]
                 _agreement_display = {"Match": "✅ Match", "Partial": "⚠️ Partial", "Diverge": "❌ Diverge"}
