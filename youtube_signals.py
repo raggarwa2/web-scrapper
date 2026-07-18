@@ -11,6 +11,20 @@ LIHKG, YouTube also has video-level reach metrics (views/likes), which
 LIHKG has no equivalent of — those stay as an extra metrics row rather
 than replacing the sentiment view.
 
+Two relevance layers, both from youtube_scraper.py, both flagged-not-
+dropped (mirrors lihkg_signals.py's likely_collision pattern — excluded
+from metrics, still visible in an expander for transparency):
+  - brand_relevant (video-level): a video can pass the lens-relevance
+    whitelist and still not be about the brand it was tagged with — a
+    keyword search surfaces adjacent content (a different company's
+    product, a clinic's generic myopia content). Excluded videos and
+    their comments never enter the metrics/tables at all.
+  - is_lens_relevant (comment-level): even under a genuinely relevant
+    video, individual comments drift off-topic (e.g. a brand/K-pop
+    sponsorship draws comments about the group, not the product).
+    Excluded from sentiment/barrier metrics but still shown in the raw
+    comment browser, marked, since it's real audience content.
+
 Lives in its own database (output/youtube_data.db by default), separate
 from lensdata.db — see youtube_scraper.py's module docstring.
 """
@@ -81,6 +95,32 @@ def render(db_path: str = DEFAULT_DB_PATH):
         unsafe_allow_html=True,
     )
 
+    # Videos not actually about their tagged brand (e.g. a keyword search
+    # surfacing a different company's product) are dropped before any
+    # metric — their comments would otherwise count as brand signal for a
+    # brand they never discuss. NaN (not yet classified — pre-migration
+    # rows) fails open and stays included.
+    not_relevant = videos["brand_relevant"] == 0 if "brand_relevant" in videos.columns else pd.Series(False, index=videos.index)
+    excluded_videos = videos[not_relevant]
+    videos = videos[~not_relevant]
+    comments = comments[comments["video_id"].isin(videos["video_id"])] if not comments.empty else comments
+
+    if not excluded_videos.empty:
+        with st.expander(
+            f"⚠ {len(excluded_videos)} video(s) excluded — keyword-matched but not actually about the tagged brand"
+        ):
+            st.dataframe(
+                excluded_videos[["brand", "title_en", "channel_title", "url"]].rename(columns={
+                    "brand": "Tagged brand", "title_en": "Title", "channel_title": "Channel", "url": "Link",
+                }),
+                width='stretch', hide_index=True,
+                column_config={"Link": st.column_config.LinkColumn("Link", display_text="Open ↗")},
+            )
+
+    if videos.empty:
+        st.info("No brand-relevant YouTube videos in current data.")
+        return
+
     brands = sorted(videos["brand"].dropna().unique())
     n_videos = len(videos)
     n_comments = len(comments)
@@ -124,26 +164,40 @@ def render(db_path: str = DEFAULT_DB_PATH):
             b_videos = videos[videos["brand"] == brand]
             b_comments = comments[comments["brand"] == brand] if not comments.empty else comments
 
+            # Sentiment/barrier metrics count only on-topic comments (is_lens_relevant == 1) —
+            # off-topic ones (audience chatter unrelated to the product, e.g. discussing a
+            # featured sponsor/celebrity rather than the lenses) would otherwise skew brand
+            # sentiment on tangents that have nothing to do with the product. NaN (not yet
+            # classified) fails open and counts as on-topic.
+            on_topic_mask = b_comments["is_lens_relevant"] != 0 if not b_comments.empty else pd.Series(dtype=bool)
+            b_comments_on_topic = b_comments[on_topic_mask] if not b_comments.empty else b_comments
+            n_off_topic = len(b_comments) - len(b_comments_on_topic)
+
             m_cols = st.columns(4)
             m_cols[0].metric("Videos", len(b_videos))
             m_cols[1].metric("Total views", f"{int(b_videos['view_count'].sum()):,}")
             m_cols[2].metric("Total likes", f"{int(b_videos['like_count'].sum()):,}")
             m_cols[3].metric("Comments collected", len(b_comments))
 
-            sent_counts = b_comments["sentiment"].value_counts() if not b_comments.empty else pd.Series(dtype=int)
+            sent_counts = b_comments_on_topic["sentiment"].value_counts() if not b_comments_on_topic.empty else pd.Series(dtype=int)
             s_cols = st.columns(4)
             s_cols[0].metric("Negative", int(sent_counts.get("negative", 0)))
             s_cols[1].metric("Positive", int(sent_counts.get("positive", 0)))
             s_cols[2].metric("Mixed", int(sent_counts.get("mixed", 0)))
-            barrier_n = int(b_comments["is_purchase_barrier_signal"].sum()) if not b_comments.empty else 0
+            barrier_n = int(b_comments_on_topic["is_purchase_barrier_signal"].sum()) if not b_comments_on_topic.empty else 0
             s_cols[3].metric(
                 "Purchase-barrier comments", barrier_n,
-                delta=f"{barrier_n / len(b_comments) * 100:.0f}% of comments" if len(b_comments) else None,
+                delta=f"{barrier_n / len(b_comments_on_topic) * 100:.0f}% of comments" if len(b_comments_on_topic) else None,
                 delta_color="off",
             )
+            if n_off_topic:
+                st.caption(
+                    f"{n_off_topic} comment(s) excluded from the metrics above as off-topic "
+                    "(audience chatter unrelated to the product) — still visible in Comments below."
+                )
 
             st.subheader("Purchase-barrier comments")
-            barrier_comments = b_comments[b_comments["is_purchase_barrier_signal"] == 1] if not b_comments.empty else b_comments
+            barrier_comments = b_comments_on_topic[b_comments_on_topic["is_purchase_barrier_signal"] == 1] if not b_comments_on_topic.empty else b_comments_on_topic
             if barrier_comments.empty:
                 st.caption("None flagged for this brand in current data.")
             else:
@@ -176,7 +230,8 @@ def render(db_path: str = DEFAULT_DB_PATH):
                 st.caption("No comments collected for this brand yet.")
             else:
                 for _, row in b_comments.sort_values("like_count", ascending=False).iterrows():
-                    st.markdown(f"**{row['author']}** · 👍 {row['like_count']} · sentiment: {row['sentiment']}")
+                    off_topic_tag = " · _off-topic, excluded from metrics_" if row["is_lens_relevant"] == 0 else ""
+                    st.markdown(f"**{row['author']}** · 👍 {row['like_count']} · sentiment: {row['sentiment']}{off_topic_tag}")
                     st.write(row["comment_text_en"] or row["comment_text"])
                     if row["comment_text_en"] and row["comment_text_en"] != row["comment_text"]:
                         st.caption(f"Original: {row['comment_text']}")
