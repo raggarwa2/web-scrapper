@@ -68,6 +68,82 @@ def load_youtube_data(db_path: str, mtime: float):
     return videos, comments
 
 
+def load_hk_dashboard_data(db_path: str = DEFAULT_DB_PATH):
+    """videos/comments filtered to HK + brand-relevant videos only — the
+    same exclusion render() applies, factored out so other tabs that want
+    to blend YouTube in (Brand Health, Trends & Demand, etc.) don't
+    duplicate it. `comments` still includes off-topic ones (is_lens_relevant
+    == 0) — callers that want sentiment/barrier signal should also apply
+    on_topic_comments(). Returns (videos, comments, excluded_videos) —
+    excluded_videos is exposed so callers can still show the same
+    transparency note render() does. Empty DataFrames (not an error) if the
+    db doesn't exist yet."""
+    if not os.path.exists(db_path):
+        empty = pd.DataFrame()
+        return empty, empty, empty
+
+    mtime = os.path.getmtime(db_path)
+    videos, comments = load_youtube_data(db_path, mtime)
+
+    videos = videos[videos["market"] == "HK"] if not videos.empty else videos
+    comments = comments[comments["market"] == "HK"] if not comments.empty else comments
+    if videos.empty:
+        return videos, comments, pd.DataFrame()
+
+    not_relevant = videos["brand_relevant"] == 0 if "brand_relevant" in videos.columns else pd.Series(False, index=videos.index)
+    excluded_videos = videos[not_relevant]
+    videos = videos[~not_relevant]
+    comments = comments[comments["video_id"].isin(videos["video_id"])] if not comments.empty else comments
+    return videos, comments, excluded_videos
+
+
+def on_topic_comments(comments: pd.DataFrame) -> pd.DataFrame:
+    """Comments actually about the product (is_lens_relevant == 1), for
+    sentiment/barrier aggregation — mirrors lihkg_signals.brand_exploded()'s
+    role of pre-filtering before scoring. NaN (not yet classified) fails
+    open and counts as on-topic, same rule render() uses."""
+    if comments.empty:
+        return comments
+    mask = comments["is_lens_relevant"] != 0
+    return comments[mask]
+
+
+def purchase_barrier_rate(on_topic_df: pd.DataFrame) -> pd.DataFrame:
+    """% of a brand's on-topic comments flagged as a purchase-barrier
+    signal. Same shape/contract as lihkg_signals.purchase_barrier_rate() so
+    callers can treat the two sources identically. Expects the output of
+    on_topic_comments()."""
+    if on_topic_df.empty:
+        return pd.DataFrame(columns=["brand", "post_count", "barrier_count", "barrier_rate"])
+    g = on_topic_df.groupby("brand").agg(
+        post_count=("is_purchase_barrier_signal", "count"),
+        barrier_count=("is_purchase_barrier_signal", "sum"),
+    )
+    g["barrier_rate"] = (g["barrier_count"] / g["post_count"] * 100).round(1)
+    return g.reset_index()
+
+
+@st.cache_data(show_spinner=False)
+def get_monthly_comment_counts(brand: str, db_path: str = DEFAULT_DB_PATH) -> pd.DataFrame:
+    """Monthly on-topic HK comment count for `brand`, for the Demand
+    Signals / Monthly Trends charts. published_at is a YouTube API ISO
+    8601 timestamp (e.g. "2026-03-10T11:29:36Z") — unlike LIHKG's relative
+    age text, this is a real date, so YouTube can be time-windowed/trended
+    the same way Reviews/XHS are."""
+    videos, comments, _ = load_hk_dashboard_data(db_path)
+    if comments.empty:
+        return pd.DataFrame(columns=["month", "youtube_count"])
+    b_comments = on_topic_comments(comments[comments["brand"] == brand])
+    if b_comments.empty:
+        return pd.DataFrame(columns=["month", "youtube_count"])
+    months = pd.to_datetime(b_comments["published_at"], errors="coerce", utc=True).dt.strftime("%Y-%m")
+    return (
+        months.dropna().value_counts().reset_index()
+        .rename(columns={"published_at": "month", "count": "youtube_count"})
+        .sort_values("month").reset_index(drop=True)
+    )
+
+
 def render(db_path: str = DEFAULT_DB_PATH):
     if not os.path.exists(db_path):
         st.info(
@@ -76,13 +152,7 @@ def render(db_path: str = DEFAULT_DB_PATH):
         )
         return
 
-    mtime = os.path.getmtime(db_path)
-    videos, comments = load_youtube_data(db_path, mtime)
-
-    # Rest of the dashboard is HK-only (see market == "HK" filters in app.py) —
-    # match that scope here and leave TH data out for now.
-    videos = videos[videos["market"] == "HK"] if not videos.empty else videos
-    comments = comments[comments["market"] == "HK"] if not comments.empty else comments
+    videos, comments, excluded_videos = load_hk_dashboard_data(db_path)
 
     if videos.empty:
         st.info("No YouTube videos loaded yet. Run `python youtube_scraper.py` to discover videos.")
@@ -94,16 +164,6 @@ def render(db_path: str = DEFAULT_DB_PATH):
         'to LIHKG, but video view/like counts are a reach proxy, not a reception signal.</div>',
         unsafe_allow_html=True,
     )
-
-    # Videos not actually about their tagged brand (e.g. a keyword search
-    # surfacing a different company's product) are dropped before any
-    # metric — their comments would otherwise count as brand signal for a
-    # brand they never discuss. NaN (not yet classified — pre-migration
-    # rows) fails open and stays included.
-    not_relevant = videos["brand_relevant"] == 0 if "brand_relevant" in videos.columns else pd.Series(False, index=videos.index)
-    excluded_videos = videos[not_relevant]
-    videos = videos[~not_relevant]
-    comments = comments[comments["video_id"].isin(videos["video_id"])] if not comments.empty else comments
 
     if not excluded_videos.empty:
         with st.expander(
