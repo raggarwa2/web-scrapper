@@ -991,7 +991,7 @@ with tab_brand_health:
                     parts.append(g)
                 yb_b = youtube_bh[youtube_bh["brand"] == b].copy() if not youtube_bh.empty else pd.DataFrame()
                 if not yb_b.empty:
-                    yb_b["published_at"] = pd.to_datetime(yb_b["published_at"], errors="coerce", utc=True)
+                    yb_b["published_at"] = pd.to_datetime(yb_b["published_at"], errors="coerce", utc=True).dt.tz_localize(None)
                     yb_b = yb_b.dropna(subset=["published_at"])
                     yb_b = yb_b[yb_b["sentiment"].isin(_VALID_SENTIMENTS)]
                 if not yb_b.empty:
