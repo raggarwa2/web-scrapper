@@ -9,7 +9,7 @@ Related files:
 - `ig_hashtag_scraper_prompt.md` — original Phase 0 discovery task spec
 - `IG_HASHTAG_SCRAPER_PHASE0_REPORT.md` — Phase 0 findings (geo-locus %, cost, recommendation)
 - `ig_hashtag_scraper_test.py` — Phase 0 scratch/test script (discovery only, not for reuse)
-- `instagram_scraper.py` — live standalone extraction module (5 brands/HK via hashtag; Acuvue also via profile mode)
+- `instagram_scraper.py` — live standalone extraction module (5 brands/HK via hashtag AND profile mode)
 - `instagram_signals.py` — dashboard data layer, mirrors `youtube_signals.py`
 
 ---
@@ -29,11 +29,12 @@ that db and renders the "Customer Signals (Instagram)" tab in `app.py`.
     history directly — reaches much further back in time than hashtag volume
     allows (confirmed: 3 Acuvue-adjacent accounts at 50 posts/account reached
     back to 2024-01-19, vs. hashtag mode capping at ~17 total posts no matter
-    how high `--max-posts` goes). Currently only 3 accounts configured, all
-    under Acuvue: `acuvuehk`, `eyesmatehk`, `3optical_contactlens`.
-- **Extracts:** captions (+ English translation), likes/comments count, owner, location tag if present, post type, `source_type`/`source_value` (which discovery mode found it)
+    how high `--max-posts` goes). Now configured for all 5 brands, 3 accounts
+    each (12 total), mined from real brand_relevant=1 hits in already-scraped
+    data rather than guessed — see §5/§6 for how and what came out of it.
+- **Extracts:** captions (+ English translation), likes/comments count, owner, location tag if present, post type, `source_type`/`source_value` (which discovery mode found it), `brand_relevant` (LLM check, computed inline for every new post)
 - **Comments:** fetched per-post via `apidojo/instagram-comments-scraper`, translated, then classified for sentiment / purchase-barrier-signal / on-topic relevance (same shape as `youtube_scraper.py`'s comment fields, for downstream comparability)
-- **Current totals (as of 2026-07-23):** 153 posts / 348 comments, Acuvue/HK only so far (17 hashtag + 136 profile). Real cost across all runs to date: ~$1.9.
+- **Current totals (as of 2026-07-24):** 712 raw posts / 754 raw comments across 5 brands. After cleaning (is_lens_relevant + brand_relevant exclusions): **324 clean posts / 586 clean comments** — see §6 for the per-brand breakdown, which is uneven (Alcon and Bausch & Lomb currently have 0 clean comments; Acuvue and Olens carry almost all of the comment signal). Real cost across all runs to date: ~$5.7.
 - **Backfill:** `--classify-existing` re-runs sentiment/barrier/relevance classification on saved comments missing it (safe to re-run).
 - **Resilience:** both the discovery loop and the comments-fetch call are wrapped so a transient Apify/network failure on one source (or on comments) doesn't discard posts already fetched (and paid for) from earlier sources in the same run — learned the hard way from a DNS blip mid-run that silently lost 150 already-paid-for posts before this fix.
 
@@ -146,9 +147,55 @@ Also cleaned in the same pass: Instagram returns `-1` for like/comment counts
 a poster has hidden — `_clean_count()` now converts these to NULL (was
 silently skewing `SUM()` aggregations before; 2 rows affected in current data).
 
-## 7. Open / not yet done
+## 7. Profile-mode expansion to all 5 brands (2026-07-24)
 
-- `PROFILES` (profile-mode accounts) only configured for Acuvue — the other 4 brands are hashtag-mode only so far.
+Candidates weren't guessed — mined from the 235 already-scraped, already-
+`brand_relevant`-checked posts (accounts with the most `brand_relevant = 1`
+hits per brand). One-off influencer/lifestyle mentions deliberately excluded
+(their profile history is likely mostly unrelated personal content).
+
+| Brand | Accounts added (50 posts requested each) |
+|---|---|
+| Alcon | `image_opticalhk`, `i.conofficial`, `professionalopticalshop` |
+| Bausch & Lomb | `conred_hk` (18 prior hits — clearly the strongest), `jobuyshop`, `cons_station` |
+| CooperVision | `popcon__shop`, `gopopstation`, `dondondonshop` |
+| Olens | `constation88` (9 prior hits), `olenshk` (the **official** brand account), `bqlens` |
+
+**Result: +477 posts, +379 comments raw.** One account (`professionalopticalshop`)
+failed with a connection-reset error mid-run — the §1 resilience fix worked as
+designed, logging and skipping it while keeping the other 2 Alcon accounts'
+already-fetched data rather than losing everything.
+
+**After cleaning, the yield is uneven per brand** — this is real signal about
+these accounts' actual content mix, not a bug:
+
+| Brand | Raw posts | Clean posts | Raw comments | Clean comments |
+|---|---|---|---|---|
+| Acuvue | 153 | 116 | 348 | 347 |
+| Olens | 158 | 100 | 275 | 230 |
+| Bausch & Lomb | 153 | 43 | 68 | **0** |
+| CooperVision | 128 | 34 | 56 | 9 |
+| Alcon | 120 | 31 | 7 | **0** |
+
+**Alcon and Bausch & Lomb currently have zero clean comments** — every
+comment-bearing post found for those two brands got excluded (off-brand or
+off-topic) during cleaning. These accounts are general multi-brand optical
+shops; the specific posts that happened to have engagement weren't reliably
+about the brand they were profile-scraped under. Olens did much better
+because its 3 accounts (`constation88`/`bqlens`/`olenshk`) skew more
+Olens-specific. Don't read "Alcon has no comments" as "Alcon has no
+reputation signal on Instagram" — it means the accounts scraped so far don't
+carry it; different/more accounts might.
+
+Also confirms the brand-relevance check scales as intended, not just as a
+one-off Acuvue fix: 358 of 712 posts (50%) flagged `brand_relevant = 0` in
+total once profile-crawling expanded to these more general, multi-brand
+reseller accounts — a much higher rate than the original 17% on the
+Acuvue-only PROFILES set, because these accounts are less brand-dedicated.
+
+## 8. Open / not yet done
+
 - The `is_lens_relevant` regex whitelist misses some marketing phrasing that doesn't literally contain a whitelisted term (e.g. Alcon "Water Lens" campaign copy) — costs a handful of genuinely-relevant posts per brand. Not expanded yet; would need real examples reviewed first rather than guessing more terms.
+- Alcon and Bausch & Lomb have no clean comment data yet (see §7) — worth revisiting with different/more accounts if comment-level sentiment matters for those brands specifically.
 - Instagram is NOT wired into the deeper cross-source integrations YouTube has (Brand Health composite score, Trends & Demand charts, blended sentiment views) — deliberate, pending more volume across brands.
 - OCR-based Highlights/testimonial extraction — evaluated as feasible, not built.
