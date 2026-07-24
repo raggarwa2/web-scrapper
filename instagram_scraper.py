@@ -39,6 +39,19 @@
 #   python instagram_scraper.py --max-posts 50
 #   python instagram_scraper.py --skip-comments
 #   python instagram_scraper.py --classify-existing
+#
+# Discovery source (added after Phase 0): hashtag search only reaches
+# whatever volume currently carries that hashtag — for #acuvuehk that
+# was ~17 posts total, all from the last few weeks, regardless of how
+# high --max-posts is set (confirmed empirically: raising it to 200
+# returned the same 17 posts, 0 new). To reach further back in time,
+# scrape known accounts' own post histories directly instead:
+#   python instagram_scraper.py --source profile
+#   python instagram_scraper.py --source both --max-posts 200
+# Profile mode pulls an account's own timeline (reverse-chronological),
+# independent of hashtag volume — but older posts on that account may
+# predate their use of #acuvuehk entirely, so this is "everything this
+# account posted," not "everything about Acuvue."
 # ==================================================================
 
 import argparse
@@ -73,6 +86,17 @@ log = logging.getLogger(__name__)
 HASHTAGS = {
     "HK": {
         "Acuvue": ["acuvuehk"],
+    },
+}
+
+# ── CONFIG: known accounts to scrape directly (profile mode) ─────────
+# Reseller/official accounts identified from hashtag-mode results so far.
+# Profile mode pulls each account's own post history — use this to reach
+# further back in time than hashtag volume allows (see header note).
+
+PROFILES = {
+    "HK": {
+        "Acuvue": ["acuvuehk", "eyesmatehk", "3optical_contactlens"],
     },
 }
 
@@ -130,12 +154,30 @@ CREATE INDEX IF NOT EXISTS idx_ig_comments_brand ON ig_comments(brand);
 CREATE INDEX IF NOT EXISTS idx_ig_comments_post  ON ig_comments(post_id);
 """
 
+# Columns added after the initial (hashtag-only) release, for profile-mode
+# discovery — same ALTER-TABLE-on-open migration pattern as youtube_scraper.py.
+_MIGRATION_COLUMNS = {
+    "ig_posts": {
+        "source_type": "TEXT",      # 'hashtag' | 'profile'
+        "source_value": "TEXT",     # the hashtag word, or the queried username
+    },
+}
+
 
 def open_db(path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(path, timeout=60)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    for table, columns in _MIGRATION_COLUMNS.items():
+        existing_cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for col, col_type in columns.items():
+            if col not in existing_cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+    conn.execute(
+        "UPDATE ig_posts SET source_type = 'hashtag', source_value = hashtag "
+        "WHERE source_type IS NULL AND hashtag IS NOT NULL"
+    )
     conn.commit()
     return conn
 
@@ -318,6 +360,20 @@ def discover_posts(hashtag: str, token: str, max_posts: int) -> List[dict]:
     return run_actor(token, POSTS_ACTOR, run_input, f"posts:{hashtag}")
 
 
+def discover_profile_posts(username: str, token: str, max_posts: int) -> List[dict]:
+    """Pull an account's own post history (reverse-chronological), independent
+    of hashtag volume. Confirmed empirically that #acuvuehk tops out at ~17
+    posts total regardless of --max-posts — this is the way to reach further
+    back in time, at the cost of pulling everything the account posted, not
+    just Acuvue-tagged content."""
+    run_input = {
+        "directUrls": [f"https://www.instagram.com/{username}/"],
+        "resultsType": "posts",
+        "resultsLimit": max_posts,
+    }
+    return run_actor(token, POSTS_ACTOR, run_input, f"profile:{username}")
+
+
 def fetch_comments_for_posts(post_urls: List[str], token: str, max_items: int) -> List[dict]:
     if not post_urls:
         return []
@@ -332,7 +388,7 @@ def _owner_bio(post: dict) -> str:
     return ""
 
 
-def extract_post_fields(post: dict, brand: str, market: str, hashtag: str, now: str) -> Optional[dict]:
+def extract_post_fields(post: dict, brand: str, market: str, source_type: str, source_value: str, now: str) -> Optional[dict]:
     post_id = post.get("shortCode") or post.get("id")
     if not post_id:
         return None
@@ -341,7 +397,9 @@ def extract_post_fields(post: dict, brand: str, market: str, hashtag: str, now: 
         "post_id":         post_id,
         "brand":           brand,
         "market":          market,
-        "hashtag":         hashtag,
+        "hashtag":         source_value if source_type == "hashtag" else None,
+        "source_type":     source_type,
+        "source_value":    source_value,
         "caption":         caption,
         "caption_en":      caption,  # placeholder, overwritten below if non-English
         "hashtags":        json.dumps(post.get("hashtags", []), ensure_ascii=False),
@@ -391,21 +449,35 @@ def extract_comment_fields(item: dict, post_id_by_url: Dict[str, str], brand: st
 def discover_and_extract(
     market: str,
     brand: str,
-    hashtags: List[str],
+    sources: List[tuple[str, str]],
     token: str,
     client: OpenAI,
     max_posts: int,
     existing_post_ids: set,
     skip_comments: bool,
 ) -> tuple[List[dict], List[dict]]:
+    """`sources` is a list of (source_type, source_value) pairs:
+    ("hashtag", "acuvuehk") or ("profile", "eyesmatehk")."""
     now = datetime.now(timezone.utc).isoformat()
     posts: List[dict] = []
 
-    for hashtag in hashtags:
-        log.info(f"[DISCOVER] Instagram | {brand} | {market} | #{hashtag}")
-        raw_items = discover_posts(hashtag, token, max_posts)
+    for source_type, source_value in sources:
+        try:
+            if source_type == "hashtag":
+                log.info(f"[DISCOVER] Instagram | {brand} | {market} | #{source_value}")
+                raw_items = discover_posts(source_value, token, max_posts)
+            else:
+                log.info(f"[DISCOVER] Instagram | {brand} | {market} | profile:@{source_value}")
+                raw_items = discover_profile_posts(source_value, token, max_posts)
+        except Exception as e:
+            # One source failing (transient network/Apify error) must not
+            # discard posts already collected from earlier sources in this
+            # same loop — log and move to the next source instead.
+            log.error(f"[DISCOVER] {source_type}:{source_value} failed, skipping: {e}")
+            continue
+
         for item in raw_items:
-            f = extract_post_fields(item, brand, market, hashtag, now)
+            f = extract_post_fields(item, brand, market, source_type, source_value, now)
             if not f or f["post_id"] in existing_post_ids:
                 continue
             posts.append(f)
@@ -428,7 +500,16 @@ def discover_and_extract(
         post_urls = [p["url"] for p in posts if p["url"]]
         post_id_by_url = {p["url"]: p["post_id"] for p in posts if p["url"]}
         max_items = max(len(post_urls) * 20, 20)
-        raw_comments = fetch_comments_for_posts(post_urls, token, max_items)
+        try:
+            raw_comments = fetch_comments_for_posts(post_urls, token, max_items)
+        except Exception as e:
+            # A transient Apify/network failure here must not lose the posts
+            # already fetched (and already paid for) above — return them with
+            # no comments rather than letting the exception propagate and
+            # discard everything (observed in practice: a DNS blip mid-run
+            # killed an entire 150-post/3-account profile scrape).
+            log.error(f"[EXTRACT] Comments fetch failed, continuing with posts only: {e}")
+            raw_comments = []
         for item in raw_comments:
             c = extract_comment_fields(item, post_id_by_url, brand, market, now)
             if c:
@@ -463,14 +544,14 @@ def save_posts(conn: sqlite3.Connection, posts: List[dict]) -> int:
                (post_id, brand, market, hashtag, caption, caption_en, hashtags,
                 owner_username, owner_full_name, location_name, location_id,
                 likes_count, comments_count, post_type, published_at, url,
-                discovered_at, is_lens_relevant)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                discovered_at, is_lens_relevant, source_type, source_value)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 p["post_id"], p["brand"], p["market"], p["hashtag"], p["caption"],
                 p["caption_en"], p["hashtags"], p["owner_username"], p["owner_full_name"],
                 p["location_name"], p["location_id"], p["likes_count"], p["comments_count"],
                 p["post_type"], p["published_at"], p["url"], p["discovered_at"],
-                p["is_lens_relevant"],
+                p["is_lens_relevant"], p["source_type"], p["source_value"],
             ),
         )
         if cur.rowcount == 1:
@@ -506,12 +587,24 @@ def save_comments(conn: sqlite3.Connection, comments: List[dict]) -> int:
 
 # ── MAIN ──────────────────────────────────────────────────────────────
 
+def _sources_for_brand(market: str, brand: str, source_mode: str) -> List[tuple[str, str]]:
+    """Build the (source_type, source_value) list for one brand/market,
+    per --source: 'hashtag', 'profile', or 'both'."""
+    sources: List[tuple[str, str]] = []
+    if source_mode in ("hashtag", "both"):
+        sources += [("hashtag", h) for h in HASHTAGS.get(market, {}).get(brand, [])]
+    if source_mode in ("profile", "both"):
+        sources += [("profile", u) for u in PROFILES.get(market, {}).get(brand, [])]
+    return sources
+
+
 def run(
     markets: List[str],
     brand_filter: Optional[List[str]],
     max_posts: int,
     dry_run: bool,
     skip_comments: bool,
+    source_mode: str = "hashtag",
     db_path: str = "output/instagram_data.db",
 ) -> None:
     token = os.getenv("APIFY_TOKEN", "").strip()
@@ -531,13 +624,17 @@ def run(
     total_comments = 0
 
     for market in markets:
-        brand_map = HASHTAGS.get(market, {})
-        for brand, hashtags in brand_map.items():
+        brands = set(HASHTAGS.get(market, {})) | set(PROFILES.get(market, {}))
+        for brand in brands:
             if brand_filter and brand.lower() not in [b.lower() for b in brand_filter]:
                 continue
 
+            sources = _sources_for_brand(market, brand, source_mode)
+            if not sources:
+                continue
+
             posts, comments = discover_and_extract(
-                market, brand, hashtags, token, client, max_posts, existing_ids, skip_comments
+                market, brand, sources, token, client, max_posts, existing_ids, skip_comments
             )
 
             if dry_run:
@@ -597,9 +694,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Instagram reputation module (standalone) — Acuvue/HK only for now")
     parser.add_argument("--market", nargs="+", default=["HK"], help="e.g. --market HK")
     parser.add_argument("--brand", nargs="+", help='e.g. --brand Acuvue')
-    parser.add_argument("--max-posts", type=int, default=20, help="Max posts per hashtag (default 20)")
+    parser.add_argument("--max-posts", type=int, default=20, help="Max posts per hashtag/profile (default 20)")
     parser.add_argument("--dry-run", action="store_true", help="Print results instead of saving to DB")
     parser.add_argument("--skip-comments", action="store_true", help="Posts only, skip the comments phase")
+    parser.add_argument(
+        "--source", choices=["hashtag", "profile", "both"], default="hashtag",
+        help="'hashtag' (default, uses HASHTAGS config), 'profile' (uses PROFILES config, "
+             "reaches further back in time per-account), or 'both'",
+    )
     parser.add_argument(
         "--classify-existing", action="store_true",
         help="Backfill sentiment/purchase-barrier labels for already-saved comments, then exit",
@@ -615,4 +717,5 @@ if __name__ == "__main__":
             max_posts=args.max_posts,
             dry_run=args.dry_run,
             skip_comments=args.skip_comments,
+            source_mode=args.source,
         )

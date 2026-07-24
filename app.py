@@ -30,6 +30,7 @@ import streamlit as st
 import demand_signals
 import lihkg_signals
 import youtube_signals
+import instagram_signals
 
 # ----------------------------------------------------------------------------
 # Page config + light styling
@@ -1812,8 +1813,8 @@ with tab_reviews_sentiment:
 
 # ---- Social Signals -----------------------------------------------------------
 with tab_social_signals:
-    sub_xhs_pane, sub_lihkg_pane, sub_youtube_pane = st.tabs(
-        ["Customer Feedback (XHS)", "Customer Signals (LIHKG)", "Customer Signals (YouTube)"]
+    sub_xhs_pane, sub_lihkg_pane, sub_youtube_pane, sub_instagram_pane = st.tabs(
+        ["Customer Feedback (XHS)", "Customer Signals (LIHKG)", "Customer Signals (YouTube)", "Customer Signals (Instagram)"]
     )
     with sub_xhs_pane:
         if xhs.empty:
@@ -2375,6 +2376,9 @@ with tab_social_signals:
 
     with sub_youtube_pane:
         youtube_signals.render()
+
+    with sub_instagram_pane:
+        instagram_signals.render()
 
 # ---- Catalog Explorer ----------------------------------------------------------
 with tab_catalog:
