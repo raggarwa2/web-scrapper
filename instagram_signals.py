@@ -9,14 +9,19 @@ is_purchase_barrier_signal, is_lens_relevant on comments) so the per-brand
 view is directly comparable across sources — see that file's docstring for
 the reasoning behind on-topic filtering and fail-open-on-NaN.
 
-One relevance layer, not two (see youtube_signals.py for contrast):
-  - is_lens_relevant (post-level): a cheap regex whitelist check from
-    instagram_scraper.py, NOT an LLM call (see that file's
-    _is_lens_relevant). Flagged, not dropped — same transparency pattern as
-    YouTube's excluded_videos, but weaker signal: a post can still be about
-    the wrong brand and pass this check, since there is no brand-relevance
-    LLM pass for Instagram yet (unlike youtube_scraper.py's
-    check_brand_relevance()). See instagram_context.md's "Open" section.
+Two relevance layers, both from instagram_scraper.py, both flagged-not-
+dropped (mirrors youtube_signals.py's pattern — excluded from metrics, still
+visible in an expander for transparency):
+  - is_lens_relevant (post-level): a cheap regex whitelist check, NOT an LLM
+    call (see that file's _is_lens_relevant) — catches posts with no
+    contact-lens term in the caption at all.
+  - brand_relevant (post-level): an LLM check (check_brand_relevance(),
+    mirrors youtube_scraper.py's) — catches the subtler case: a post can pass
+    the lens-relevance whitelist and still not be about the TAGGED brand, since
+    HK resellers commonly hashtag-stuff many brand names onto one post
+    regardless of which brand the actual product is (confirmed: a Korean
+    LACELLE/Clalen post co-tagged #博士倫隱形眼鏡 alongside a dozen other
+    brand hashtags). Both checks must pass for a post to enter the metrics.
   - is_lens_relevant (comment-level) IS LLM-classified, same as YouTube's.
 
 Instagram posts are discovered two ways (instagram_scraper.py's --source):
@@ -68,15 +73,17 @@ def load_instagram_data(db_path: str, mtime: float):
 
 
 def load_hk_dashboard_data(db_path: str = DEFAULT_DB_PATH):
-    """posts/comments filtered to HK + lens-relevant posts only — same
-    exclusion render() applies, factored out so other tabs that want to
-    blend Instagram in (Brand Health, Trends & Demand, etc.) don't
+    """posts/comments filtered to HK + lens-relevant + brand-relevant posts
+    only — same exclusion render() applies, factored out so other tabs that
+    want to blend Instagram in (Brand Health, Trends & Demand, etc.) don't
     duplicate it. `comments` still includes off-topic ones (comment-level
     is_lens_relevant == 0) — callers that want sentiment/barrier signal
     should also apply on_topic_comments(). Returns (posts, comments,
     excluded_posts) — excluded_posts is exposed so callers can still show
-    the same transparency note render() does. Empty DataFrames (not an
-    error) if the db doesn't exist yet."""
+    the same transparency note render() does. NaN (not yet checked, e.g.
+    brand_relevant before backfill ran) fails open and counts as relevant —
+    only an explicit 0 excludes. Empty DataFrames (not an error) if the db
+    doesn't exist yet."""
     if not os.path.exists(db_path):
         empty = pd.DataFrame()
         return empty, empty, empty
@@ -89,7 +96,9 @@ def load_hk_dashboard_data(db_path: str = DEFAULT_DB_PATH):
     if posts.empty:
         return posts, comments, pd.DataFrame()
 
-    not_relevant = posts["is_lens_relevant"] == 0 if "is_lens_relevant" in posts.columns else pd.Series(False, index=posts.index)
+    lens_not_relevant = posts["is_lens_relevant"] == 0 if "is_lens_relevant" in posts.columns else pd.Series(False, index=posts.index)
+    brand_not_relevant = posts["brand_relevant"] == 0 if "brand_relevant" in posts.columns else pd.Series(False, index=posts.index)
+    not_relevant = lens_not_relevant | brand_not_relevant
     excluded_posts = posts[not_relevant]
     posts = posts[~not_relevant]
     comments = comments[comments["post_id"].isin(posts["post_id"])] if not comments.empty else comments
@@ -159,15 +168,17 @@ def render(db_path: str = DEFAULT_DB_PATH):
     st.markdown(
         '<div class="caveat-box">Instagram comments are unsolicited viewer reactions to a '
         'post, not product reviews — sentiment/purchase-barrier scoring here is comparable '
-        'to YouTube/LIHKG, but likes are a reach proxy, not a reception signal. Post-level '
-        'relevance is a keyword whitelist, not an LLM brand check (unlike YouTube) — a post '
-        'can still be about the wrong brand and pass it.</div>',
+        'to YouTube/LIHKG, but likes are a reach proxy, not a reception signal. Posts pass '
+        'two checks before counting toward a brand: an explicit contact-lens term in the '
+        'caption, and an LLM check that the post is genuinely about the tagged brand (HK '
+        'resellers commonly hashtag-stuff multiple brand names onto one post).</div>',
         unsafe_allow_html=True,
     )
 
     if not excluded_posts.empty:
         with st.expander(
-            f"⚠ {len(excluded_posts)} post(s) excluded — no explicit contact-lens term in caption"
+            f"⚠ {len(excluded_posts)} post(s) excluded — no contact-lens term in caption, "
+            "or not actually about the tagged brand"
         ):
             st.dataframe(
                 excluded_posts[["brand", "caption_en", "owner_username", "url"]].rename(columns={

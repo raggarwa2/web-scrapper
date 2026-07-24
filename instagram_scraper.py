@@ -85,8 +85,28 @@ log = logging.getLogger(__name__)
 
 HASHTAGS = {
     "HK": {
-        "Acuvue": ["acuvuehk"],
+        "Acuvue":        ["acuvuehk"],
+        "Alcon":         ["alconhk"],
+        "Bausch & Lomb": ["bauschlombhk", "博士倫隱形眼鏡"],
+        "CooperVision":  ["coopervisionhk"],
+        "Olens":         ["olenshk"],
     },
+}
+# Bare brand names deliberately excluded — tested and rejected (see
+# instagram_context.md): "alcon" collides with the brake-caliper brand,
+# "coopervision" surfaces mostly non-HK global opticians, "olensviviring"
+# is mostly Korea-market/dutyfree content, not HK-specific.
+
+# Literal brand-name aliases — used only as a deterministic pre-check in
+# check_brand_relevance() so the unambiguous case (caption/username
+# literally names the brand) never depends on an LLM call-to-call judgment.
+# Mirrors youtube_scraper.py's BRAND_ALIASES exactly, same rationale.
+BRAND_ALIASES = {
+    "Acuvue": ["acuvue"],
+    "Alcon": ["alcon"],
+    "Bausch & Lomb": ["bausch", "lomb", "博士倫"],
+    "CooperVision": ["coopervision"],
+    "Olens": ["olens"],
 }
 
 # ── CONFIG: known accounts to scrape directly (profile mode) ─────────
@@ -128,7 +148,8 @@ CREATE TABLE IF NOT EXISTS ig_posts (
     published_at    TEXT,
     url             TEXT,
     discovered_at   TEXT,
-    is_lens_relevant INTEGER
+    is_lens_relevant INTEGER,
+    brand_relevant  INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS ig_comments (
@@ -160,8 +181,16 @@ _MIGRATION_COLUMNS = {
     "ig_posts": {
         "source_type": "TEXT",      # 'hashtag' | 'profile'
         "source_value": "TEXT",     # the hashtag word, or the queried username
+        "brand_relevant": "INTEGER",  # NULL = not yet checked; see check_brand_relevance()
     },
 }
+
+
+def _clean_count(v) -> Optional[int]:
+    """Instagram returns -1 for like/comment counts the poster has hidden —
+    not a real value, and would silently skew SUM() aggregations if kept.
+    NULL (unknown) is more honest than 0 (which claims zero engagement)."""
+    return v if isinstance(v, int) and v >= 0 else None
 
 
 def open_db(path: str) -> sqlite3.Connection:
@@ -178,6 +207,8 @@ def open_db(path: str) -> sqlite3.Connection:
         "UPDATE ig_posts SET source_type = 'hashtag', source_value = hashtag "
         "WHERE source_type IS NULL AND hashtag IS NOT NULL"
     )
+    conn.execute("UPDATE ig_posts SET likes_count = NULL WHERE likes_count < 0")
+    conn.execute("UPDATE ig_posts SET comments_count = NULL WHERE comments_count < 0")
     conn.commit()
     return conn
 
@@ -304,6 +335,106 @@ Comments:
     return [by_index.get(i + 1, fallback) for i in range(len(texts_en))]
 
 
+BRAND_RELEVANCE_BATCH_SIZE = 20
+
+
+def _llm_brand_relevance_batch(items: List[dict], client: OpenAI) -> List[bool]:
+    """True if a post is actually about the brand it was tagged with at
+    discovery (from the hashtag/profile that found it), not just generic
+    contact-lens content or a different brand's product that happens to
+    co-tag the same hashtag. Confirmed empirically this happens: HK
+    resellers hashtag-stuff many brand tags onto one post regardless of
+    which brand the product actually is (e.g. a Korean LACELLE/Clalen post
+    co-tagged with #博士倫隱形眼鏡 alongside a dozen other brand hashtags).
+
+    Each `item` is {"caption": str, "owner_username": str, "brand": str}.
+    Fails open (True) on parse errors/drops — under-flagging just leaves
+    the existing behavior, over-flagging silently deletes real data (same
+    rationale as youtube_scraper.py's check_brand_relevance)."""
+    if not items:
+        return []
+    numbered = "\n".join(
+        f"{i + 1}. Brand: {it['brand']} | Account: @{it['owner_username']} | Caption: {it['caption'][:300]}"
+        for i, it in enumerate(items)
+    )
+    prompt = f"""Each of these {len(items)} Instagram posts was surfaced by a hashtag/account search for the
+stated brand's contact lens products. HK resellers commonly hashtag-stuff many brand names onto a
+single post regardless of which brand the actual product is — your job is to check the post is
+genuinely about the STATED brand's product, not just co-tagged with it.
+
+Mark "is_brand_relevant": true if EITHER:
+(a) the account is an official or reseller channel clearly selling that brand (account name or
+    caption repeatedly names the brand as the product being sold), OR
+(b) the brand name, or one of its known product lines (Air Optix/Opti-Free/Dailies/Freshlook/
+    PRECISION1/TOTAL1 = Alcon; Biotrue/ULTRA/PureVision/Medalist/Lacelle = Bausch & Lomb;
+    Biofinity/MyDay/clariti/Avaira/MiSight = CooperVision; Oasys/Define/OASYS MAX = Acuvue;
+    VIVI Ring = Olens), is named as the actual product in the caption.
+
+Mark false if the caption is clearly about a DIFFERENT brand's product (e.g. a Korean brand like
+LACELLE, Clalen, Olens, DreamLens that isn't the stated brand) despite co-tagging the stated
+brand's hashtag alongside many others — this is common hashtag-stuffing by multi-brand resellers,
+not evidence of relevance.
+
+When genuinely unsure, default to true — this check exists to catch clear mismatches, not to
+second-guess borderline cases.
+
+For each post, return an object with:
+- "i": the post's number as shown below (integer)
+- "is_brand_relevant": true/false
+
+Return ONLY a JSON array of objects, one per post, no other text.
+
+Posts:
+{numbered}"""
+    by_index: Dict[int, bool] = {}
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=2000,
+        )
+        raw = resp.choices[0].message.content.strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            for p in parsed:
+                idx = p.get("i")
+                if isinstance(idx, int) and 1 <= idx <= len(items):
+                    by_index[idx] = bool(p.get("is_brand_relevant", True))
+        if len(by_index) != len(items):
+            log.warning(f"[LLM] Brand relevance batch: expected {len(items)}, got {len(by_index)} indexed")
+    except Exception as e:
+        log.warning(f"[LLM] Brand relevance batch failed: {e}")
+
+    return [by_index.get(i + 1, True) for i in range(len(items))]
+
+
+def check_brand_relevance(items: List[dict], client: OpenAI) -> List[bool]:
+    """Wraps _llm_brand_relevance_batch with a deterministic pre-check: if
+    the brand's literal name already appears in the caption or account
+    username (BRAND_ALIASES), mark relevant without asking the LLM at all —
+    the unambiguous case. Only items where the brand name ISN'T literally
+    present go to the LLM. Mirrors youtube_scraper.py's check_brand_relevance."""
+    if not items:
+        return []
+    results: List[Optional[bool]] = [None] * len(items)
+    needs_llm_idxs = []
+    for i, it in enumerate(items):
+        aliases = BRAND_ALIASES.get(it["brand"], [it["brand"].lower()])
+        haystack = f"{it['caption']} {it['owner_username']}".lower()
+        if any(alias.lower() in haystack for alias in aliases):
+            results[i] = True
+        else:
+            needs_llm_idxs.append(i)
+
+    if needs_llm_idxs:
+        llm_results = _llm_brand_relevance_batch([items[i] for i in needs_llm_idxs], client)
+        for i, r in zip(needs_llm_idxs, llm_results):
+            results[i] = r
+
+    return results
+
+
 # ── APIFY CALLS ────────────────────────────────────────────────────────
 
 def run_actor(token: str, actor_id: str, run_input: dict, label: str, max_wait_attempts: int = 60) -> List[dict]:
@@ -407,13 +538,14 @@ def extract_post_fields(post: dict, brand: str, market: str, source_type: str, s
         "owner_full_name": post.get("ownerFullName", ""),
         "location_name":   post.get("locationName"),
         "location_id":     post.get("locationId"),
-        "likes_count":     post.get("likesCount"),
-        "comments_count":  post.get("commentsCount"),
+        "likes_count":     _clean_count(post.get("likesCount")),
+        "comments_count":  _clean_count(post.get("commentsCount")),
         "post_type":       post.get("type"),
         "published_at":    post.get("timestamp", ""),
         "url":             post.get("url", ""),
         "discovered_at":   now,
         "is_lens_relevant": int(_is_lens_relevant(caption)),
+        "brand_relevant":  None,  # filled in below
     }
 
 
@@ -495,6 +627,16 @@ def discover_and_extract(
         for idx, translation in zip(batch_idxs, translations):
             posts[idx]["caption_en"] = translation
 
+    # Brand-relevance check — is each post actually about the brand it was
+    # tagged with, not just co-tagged/hashtag-stuffed content (see
+    # check_brand_relevance docstring)
+    for start in range(0, len(posts), BRAND_RELEVANCE_BATCH_SIZE):
+        batch = posts[start:start + BRAND_RELEVANCE_BATCH_SIZE]
+        items = [{"caption": p["caption_en"], "owner_username": p["owner_username"], "brand": p["brand"]} for p in batch]
+        results = check_brand_relevance(items, client)
+        for p, is_relevant in zip(batch, results):
+            p["brand_relevant"] = is_relevant
+
     all_comments: List[dict] = []
     if not skip_comments:
         post_urls = [p["url"] for p in posts if p["url"]]
@@ -544,14 +686,15 @@ def save_posts(conn: sqlite3.Connection, posts: List[dict]) -> int:
                (post_id, brand, market, hashtag, caption, caption_en, hashtags,
                 owner_username, owner_full_name, location_name, location_id,
                 likes_count, comments_count, post_type, published_at, url,
-                discovered_at, is_lens_relevant, source_type, source_value)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                discovered_at, is_lens_relevant, source_type, source_value, brand_relevant)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 p["post_id"], p["brand"], p["market"], p["hashtag"], p["caption"],
                 p["caption_en"], p["hashtags"], p["owner_username"], p["owner_full_name"],
                 p["location_name"], p["location_id"], p["likes_count"], p["comments_count"],
                 p["post_type"], p["published_at"], p["url"], p["discovered_at"],
                 p["is_lens_relevant"], p["source_type"], p["source_value"],
+                int(p["brand_relevant"]) if p["brand_relevant"] is not None else None,
             ),
         )
         if cur.rowcount == 1:
@@ -690,6 +833,38 @@ def classify_existing(db_path: str = "output/instagram_data.db") -> int:
     return classified
 
 
+def backfill_brand_relevance(db_path: str = "output/instagram_data.db") -> int:
+    """Backfill brand_relevant for posts saved before that check existed
+    (brand_relevant IS NULL). Safe to re-run — only touches unchecked rows."""
+    client = OpenAI()
+    conn = open_db(db_path)
+    rows = conn.execute(
+        "SELECT post_id, caption_en, owner_username, brand FROM ig_posts WHERE brand_relevant IS NULL"
+    ).fetchall()
+    log.info(f"[RELEVANCE] {len(rows)} posts missing brand-relevance check")
+
+    checked = 0
+    for start in range(0, len(rows), BRAND_RELEVANCE_BATCH_SIZE):
+        batch = rows[start:start + BRAND_RELEVANCE_BATCH_SIZE]
+        items = [
+            {"caption": r["caption_en"] or "", "owner_username": r["owner_username"] or "", "brand": r["brand"]}
+            for r in batch
+        ]
+        results = check_brand_relevance(items, client)
+        for row, is_relevant in zip(batch, results):
+            conn.execute(
+                "UPDATE ig_posts SET brand_relevant = ? WHERE post_id = ?",
+                (int(is_relevant), row["post_id"]),
+            )
+            checked += 1
+        conn.commit()
+        log.info(f"[RELEVANCE] {checked}/{len(rows)} done")
+
+    conn.close()
+    log.info(f"[RELEVANCE] Done — {checked} posts checked")
+    return checked
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Instagram reputation module (standalone) — Acuvue/HK only for now")
     parser.add_argument("--market", nargs="+", default=["HK"], help="e.g. --market HK")
@@ -704,11 +879,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--classify-existing", action="store_true",
-        help="Backfill sentiment/purchase-barrier labels for already-saved comments, then exit",
+        help="Backfill brand-relevance (posts) and sentiment/purchase-barrier labels "
+             "(comments) for already-saved data, then exit",
     )
     args = parser.parse_args()
 
     if args.classify_existing:
+        backfill_brand_relevance()
         classify_existing()
     else:
         run(
