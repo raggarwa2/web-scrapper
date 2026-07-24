@@ -116,9 +116,20 @@ BRAND_ALIASES = {
 
 PROFILES = {
     "HK": {
-        "Acuvue": ["acuvuehk", "eyesmatehk", "3optical_contactlens"],
+        "Acuvue":        ["acuvuehk", "eyesmatehk", "3optical_contactlens"],
+        "Alcon":         ["image_opticalhk", "i.conofficial", "professionalopticalshop"],
+        "Bausch & Lomb": ["conred_hk", "jobuyshop", "cons_station"],
+        "CooperVision":  ["popcon__shop", "gopopstation", "dondondonshop"],
+        "Olens":         ["constation88", "olenshk", "bqlens"],
     },
 }
+# Candidates mined from our own already-cleaned data (accounts with
+# brand_relevant=1 posts, ranked by frequency) — see instagram_context.md.
+# One-off influencer/lifestyle mentions (e.g. julialam6612, stylebook.hk)
+# deliberately excluded — their profile history is likely mostly unrelated
+# personal content, not worth a 50-post crawl. Multi-brand resellers (e.g.
+# bqlens) are safe to reuse across brands now that check_brand_relevance()
+# correctly sorts their posts per-brand instead of trusting the config tag.
 
 APIFY_BASE = "https://api.apify.com/v2"
 POSTS_ACTOR = "apify/instagram-scraper"
