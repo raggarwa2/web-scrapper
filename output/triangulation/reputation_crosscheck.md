@@ -1,20 +1,20 @@
 # External Validation — Reputation.csv Cross-Check
 
-Compares our own scraped sentiment (HK reviews + XHS posts + XHS comments + LIHKG posts + YouTube comments, pooled — none of these needed new LLM classification here, all five already carry a sentiment label from their own scraper) against `Research/reputation.csv`'s manually-researched forum/press sentiment, per brand. This is a QA/credibility check: do the two independent signals agree?
+Compares our own scraped sentiment (HK reviews + XHS posts + XHS comments + LIHKG posts + YouTube comments + Instagram comments, pooled — none of these needed new LLM classification here, all six already carry a sentiment label from their own scraper) against `Research/reputation.csv`'s manually-researched forum/press sentiment, per brand. This is a QA/credibility check: do the two independent signals agree?
 
 **Pooling method:** each source's positive/negative/neutral counts are simply summed (unweighted) into one pooled lean per brand — a brand with far more posts than reviews (or vice versa) will have its pooled lean dominated by whichever source has more volume. Net sentiment within ±10pp of zero is classified neutral.
 
-_Excluded from pooling as non-standard labels — xhs_posts sentiment='warning': 2 rows excluded; lihkg_posts sentiment='mixed': 18 rows excluded; xhs_comments non-standard/blank sentiment: 240 rows excluded; youtube_comments not brand-relevant/on-topic: 552 rows excluded._
+_Excluded from pooling as non-standard labels — xhs_posts sentiment='warning': 2 rows excluded; lihkg_posts sentiment='mixed': 18 rows excluded; xhs_comments non-standard/blank sentiment: 240 rows excluded; youtube_comments not brand-relevant/on-topic: 552 rows excluded; instagram_comments not brand-relevant/on-topic: 574 rows excluded._
 
 ## Brand comparison
 
 | Brand | Scraped lean | Reputation.csv lean | Agreement | Notes |
 |---|---|---|---|---|
-| Acuvue | positive | negative | Diverge | Scraped lean positive (+72.6% net, n=3907) vs. reputation.csv lean negative (pos=1, neg=4, mixed=2, neu=2, n=9). |
+| Acuvue | positive | negative | Diverge | Scraped lean positive (+72.5% net, n=3933) vs. reputation.csv lean negative (pos=1, neg=4, mixed=2, neu=2, n=9). |
 | Alcon | positive | positive | Match | Scraped lean positive (+57.1% net, n=1240) vs. reputation.csv lean positive (pos=3, neg=0, mixed=0, neu=0, n=3). |
 | Bausch & Lomb | positive | mixed | Match | Scraped lean positive (+65.6% net, n=3268) vs. reputation.csv lean mixed (pos=1, neg=1, mixed=2, neu=0, n=4). |
-| CooperVision | positive | positive | Match | Scraped lean positive (+60.0% net, n=907) vs. reputation.csv lean positive (pos=4, neg=0, mixed=1, neu=0, n=5). |
-| Olens | positive | neutral | Partial | Scraped lean positive (+50.8% net, n=883) vs. reputation.csv lean neutral (pos=0, neg=0, mixed=0, neu=2, n=2). |
+| CooperVision | positive | positive | Match | Scraped lean positive (+59.8% net, n=911) vs. reputation.csv lean positive (pos=4, neg=0, mixed=1, neu=0, n=5). |
+| Olens | positive | neutral | Partial | Scraped lean positive (+56.9% net, n=1031) vs. reputation.csv lean neutral (pos=0, neg=0, mixed=0, neu=2, n=2). |
 
 ## Evidence for diverging brands
 

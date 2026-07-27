@@ -31,6 +31,7 @@ import demand_signals
 import lihkg_signals
 import youtube_signals
 import instagram_signals
+import facebook_signals
 
 # ----------------------------------------------------------------------------
 # Page config + light styling
@@ -74,7 +75,7 @@ BRAND_COLORS = {
     "Olens": "#db2777",
 }
 
-_SITES_DISPLAY = "HKTVmall · 393lens · Sorra · WateryEyes · Xiaohongshu (customer feedback) · LIHKG (customer signals)"
+_SITES_DISPLAY = "HKTVmall · 393lens · Sorra · WateryEyes · Xiaohongshu (customer feedback) · LIHKG (customer signals) · Facebook (page reviews)"
 
 DEFAULT_DB_PATH = os.path.join("output", "lensdata.db")
 
@@ -391,6 +392,15 @@ lihkg_df = lihkg_signals.load_lihkg_posts(db_path, mtime)
 # == 0) — call youtube_signals.on_topic_comments() before using for
 # sentiment/barrier scoring, same as render() does.
 youtube_videos_df, youtube_comments_df, _yt_excluded_videos = youtube_signals.load_hk_dashboard_data()
+# Same shape/relevance-filtering contract as YouTube — see instagram_signals.py's
+# module docstring. instagram_comments_df still includes off-topic comments;
+# call instagram_signals.on_topic_comments() before using for sentiment scoring.
+instagram_posts_df, instagram_comments_df, _ig_excluded_posts = instagram_signals.load_hk_dashboard_data()
+# Separate db (output/facebook_data.db) — see facebook_reviews_merge.py's
+# module docstring. Every review IS the analysis unit (no discovery-then-
+# relevance-filter pass like Instagram/YouTube), so there's no excluded-set/
+# on-topic split to apply before using facebook_reviews_df for sentiment.
+facebook_reviews_df, = facebook_signals.load_hk_dashboard_data()
 
 research_dir = st.sidebar.text_input("Research findings folder", value="research")
 if os.path.isdir(research_dir):
@@ -447,13 +457,20 @@ st.sidebar.caption(
     f"Database last updated:\n{datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')}"
 )
 _xhs_attributed = xhs[xhs["brand_mentioned"].notna() & (xhs["brand_mentioned"] != "other")]
-_total_content = len(reviews) + len(xhs) + len(xhs_comments) + len(lihkg_df) + len(youtube_comments_df)
+_youtube_on_topic_all = youtube_signals.on_topic_comments(youtube_comments_df)
+_instagram_on_topic_all = instagram_signals.on_topic_comments(instagram_comments_df)
+_total_content = (
+    len(reviews) + len(xhs) + len(xhs_comments) + len(lihkg_df)
+    + len(_youtube_on_topic_all) + len(_instagram_on_topic_all) + len(facebook_reviews_df)
+)
 st.sidebar.markdown(f"**{_total_content:,} pieces of consumer content analyzed**")
 st.sidebar.caption(
     f"{len(products)} products \u00b7 {len(reviews)} reviews \u00b7 "
     f"{len(xhs)} XHS posts ({len(_xhs_attributed)} brand-attributed) \u00b7 "
     f"{len(xhs_comments)} XHS comments \u00b7 {len(lihkg_df)} LIHKG posts \u00b7 "
-    f"{len(youtube_comments_df)} YouTube comments"
+    f"{len(_youtube_on_topic_all)} YouTube comments \u00b7 "
+    f"{len(_instagram_on_topic_all)} Instagram comments \u00b7 "
+    f"{len(facebook_reviews_df)} Facebook reviews"
 )
 
 products_f = products[
@@ -533,10 +550,24 @@ _lihkg_f_count = (
     if not lihkg_df.empty else 0
 )
 _youtube_f_count = (
-    len(youtube_comments_df[youtube_comments_df["brand"].isin(selected_brands)])
+    len(youtube_signals.on_topic_comments(
+        youtube_comments_df[youtube_comments_df["brand"].isin(selected_brands)]
+    ))
     if not youtube_comments_df.empty else 0
 )
-_total_analyzed = len(reviews_f) + _xhs_f_count + _lihkg_f_count + _youtube_f_count
+_instagram_f_count = (
+    len(instagram_signals.on_topic_comments(
+        instagram_comments_df[instagram_comments_df["brand"].isin(selected_brands)]
+    ))
+    if not instagram_comments_df.empty else 0
+)
+_facebook_f_count = (
+    facebook_reviews_df["mentioned_brands_list"].apply(lambda lst: any(b in selected_brands for b in lst)).sum()
+    if not facebook_reviews_df.empty else 0
+)
+_total_analyzed = (
+    len(reviews_f) + _xhs_f_count + _lihkg_f_count + _youtube_f_count + _instagram_f_count + _facebook_f_count
+)
 ins_cols[0].metric(
     "Reviews & posts analyzed", f"{_total_analyzed:,}",
     help=(
@@ -544,7 +575,9 @@ ins_cols[0].metric(
         f"- {len(reviews_f):,} reviews (HKTVmall, 393lens, Sorra)\n"
         f"- {_xhs_f_count:,} Xiaohongshu (XHS) posts\n"
         f"- {_lihkg_f_count:,} LIHKG posts\n"
-        f"- {_youtube_f_count:,} YouTube comments"
+        f"- {_youtube_f_count:,} YouTube comments\n"
+        f"- {_instagram_f_count:,} Instagram comments\n"
+        f"- {_facebook_f_count:,} Facebook reviews"
     ),
 )
 
@@ -812,24 +845,27 @@ with tab_brand_health:
         """
         <div class="caveat-box">
         <b>How this score is built:</b> each brand gets a single 0-100 composite score
-        blending four sentiment sources — <b>Reviews</b> (star-rating based, includes
+        blending sentiment sources — <b>Reviews</b> (star-rating based, includes
         HKTVmall/393lens/Sorra/ta-to/Lazada TH/WateryEyes), <b>XHS</b> (LLM-labeled post
-        sentiment), <b>LIHKG</b> (LLM-labeled forum-post sentiment), and <b>YouTube</b>
+        sentiment), <b>LIHKG</b> (LLM-labeled forum-post sentiment), <b>YouTube</b>
         (LLM-labeled comment sentiment, on-topic comments only — see Social Signals for
-        what "on-topic" excludes). Each source is weighted by &radic;n so a large review
-        base doesn't drown out a thinner one, but a source with fewer than 5 qualifying
-        items for a brand is excluded entirely rather than let a tiny sample swing the
-        score — excluded sources are shown on each card. LIHKG posts carry no absolute
-        date, so LIHKG is a snapshot only and is left out of the monthly trend chart below;
-        YouTube comments do carry real dates and are included there. Rows with dirty/
-        unparseable sentiment values (<code>"warning"</code>, <code>"please refer to the
-        original text"</code>), LIHKG posts from known keyword-collision categories
-        (cars/sports — same "Alcon"/"Olens" generic-word problem documented in the Social
-        Signals and Trends &amp; Demand tabs), and YouTube videos/comments excluded as not
-        actually brand-relevant or off-topic (see Social Signals) are excluded from
-        scoring. Google Trends demand/buzz is shown separately, not blended into the
-        score, since it measures search volume rather than sentiment and is only verified
-        clean for Acuvue today.
+        what "on-topic" excludes), <b>Instagram</b> (LLM-labeled comment sentiment,
+        on-topic only), and <b>Facebook</b> (rule-derived from the reviewer's own
+        recommend/not-recommend flag — the one source here that isn't LLM-labeled, and
+        the only one with no "neutral" bucket). Each source is weighted by &radic;n so a
+        large review base doesn't drown out a thinner one, but a source with fewer than 5
+        qualifying items for a brand is excluded entirely rather than let a tiny sample
+        swing the score — excluded sources are shown on each card. LIHKG and Facebook are
+        each shown only as a snapshot score, not in the monthly trend chart below (LIHKG
+        has no absolute date; Facebook isn't wired into that chart in this pass). Rows
+        with dirty/unparseable sentiment values (<code>"warning"</code>, <code>"please
+        refer to the original text"</code>), LIHKG posts from known keyword-collision
+        categories (cars/sports — same "Alcon"/"Olens" generic-word problem documented in
+        the Social Signals and Trends &amp; Demand tabs), and YouTube/Instagram
+        videos/comments excluded as not actually brand-relevant or off-topic (see Social
+        Signals) are excluded from scoring. Google Trends demand/buzz is shown separately,
+        not blended into the score, since it measures search volume rather than sentiment
+        and is only verified clean for Acuvue today.
         </div>
         """,
         unsafe_allow_html=True,
@@ -876,6 +912,23 @@ with tab_brand_health:
         if not youtube_comments_df.empty else pd.DataFrame()
     )
 
+    # Instagram sentiment — on-topic comments only (instagram_posts_df/instagram_comments_df
+    # already exclude brand-irrelevant/off-topic posts, loaded at the top of the file).
+    # Full 5th source, same treatment as YouTube — no toggle, just the same n>=5 gating.
+    instagram_bh = (
+        instagram_signals.on_topic_comments(instagram_comments_df[instagram_comments_df["brand"].isin(selected_brands)])
+        if not instagram_comments_df.empty else pd.DataFrame()
+    )
+
+    # Facebook sentiment — brand-exploded, same pattern as LIHKG. sentiment is
+    # already rule-derived (positive/negative/neutral only, see facebook_signals.py),
+    # so no _VALID_SENTIMENTS filtering concern here.
+    if not facebook_reviews_df.empty:
+        facebook_bh = facebook_signals.brand_exploded(facebook_reviews_df)
+        facebook_bh = facebook_bh[facebook_bh["mentioned_brands_list"].isin(selected_brands)]
+    else:
+        facebook_bh = pd.DataFrame()
+
     def _brand_score(brand: str):
         components = []  # list of (label, pos_pct, n)
         pos, n = _source_pos_pct(rev_bh[rev_bh["brand"] == brand])
@@ -893,6 +946,14 @@ with tab_brand_health:
         pos, n = _source_pos_pct(yb_)
         if pos is not None and n >= MIN_N_FOR_SOURCE:
             components.append(("YouTube", pos, n))
+        ib_ = instagram_bh[instagram_bh["brand"] == brand] if not instagram_bh.empty else pd.DataFrame()
+        pos, n = _source_pos_pct(ib_)
+        if pos is not None and n >= MIN_N_FOR_SOURCE:
+            components.append(("Instagram", pos, n))
+        fb_ = facebook_bh[facebook_bh["mentioned_brands_list"] == brand] if not facebook_bh.empty else pd.DataFrame()
+        pos, n = _source_pos_pct(fb_)
+        if pos is not None and n >= MIN_N_FOR_SOURCE:
+            components.append(("Facebook", pos, n))
 
         if not components:
             return None, components
@@ -900,7 +961,12 @@ with tab_brand_health:
         score = sum(pos * w for (_, pos, _), w in zip(components, weights)) / sum(weights)
         return score, components
 
-    brand_scores = {b: dict(zip(("score", "components"), _brand_score(b))) for b in selected_brands}
+    _source_labels = ("Reviews", "XHS", "LIHKG", "YouTube", "Instagram", "Facebook")
+
+    brand_scores = {
+        b: dict(zip(("score", "components"), _brand_score(b)))
+        for b in selected_brands
+    }
 
     st.markdown("#### All Brands Overview")
     if not selected_brands:
@@ -927,7 +993,7 @@ with tab_brand_health:
                 score_color = "#16a34a" if score >= 65 else ("#e8a33d" if score >= 45 else "#dc2626")
                 breakdown = " · ".join(f"{label} {pos:.0f}% (n={n})" for label, pos, n in info["components"])
                 present = {label for label, _, _ in info["components"]}
-                excluded = [s for s in ("Reviews", "XHS", "LIHKG", "YouTube") if s not in present]
+                excluded = [s for s in _source_labels if s not in present]
                 excluded_note = f"excluded: {', '.join(excluded)} (n&lt;{MIN_N_FOR_SOURCE})" if excluded else "&nbsp;"
                 st.markdown(
                     f"""<div style="background:#f8f9fb;border:1px solid #e6e6e6;border-radius:12px;
@@ -965,7 +1031,7 @@ with tab_brand_health:
         )
 
         st.markdown(
-            "**Monthly composite sentiment trend** — Reviews + XHS + YouTube blended per "
+            "**Monthly composite sentiment trend** — Reviews + XHS + YouTube + Instagram blended per "
             "brand (&radic;n-weighted per month; LIHKG excluded — no absolute post dates)",
             unsafe_allow_html=True,
         )
@@ -1001,6 +1067,17 @@ with tab_brand_health:
                         pos=lambda s: (s == "positive").sum(), n="count"
                     ).reset_index()
                     parts.append(g)
+                ib_b = instagram_bh[instagram_bh["brand"] == b].copy() if not instagram_bh.empty else pd.DataFrame()
+                if not ib_b.empty:
+                    ib_b["published_at"] = pd.to_datetime(ib_b["published_at"], errors="coerce", utc=True).dt.tz_localize(None)
+                    ib_b = ib_b.dropna(subset=["published_at"])
+                    ib_b = ib_b[ib_b["sentiment"].isin(_VALID_SENTIMENTS)]
+                if not ib_b.empty:
+                    ib_b["month"] = ib_b["published_at"].dt.to_period("M").astype(str)
+                    g = ib_b.groupby("month")["sentiment"].agg(
+                        pos=lambda s: (s == "positive").sum(), n="count"
+                    ).reset_index()
+                    parts.append(g)
                 if not parts:
                     continue
                 monthly = pd.concat(parts, ignore_index=True)
@@ -1014,7 +1091,7 @@ with tab_brand_health:
                 combined_frames.append(blended)
 
             if not combined_frames:
-                st.info("No dated Reviews, XHS, or YouTube data for the selected brands.")
+                st.info("No dated Reviews, XHS, YouTube, or Instagram data for the selected brands.")
             else:
                 combined_df = pd.concat(combined_frames, ignore_index=True).sort_values("month")
                 fig = px.line(
@@ -1041,9 +1118,9 @@ with tab_brand_health:
                 st.info(f"Not enough data across any source to score {focus_brand}.")
             else:
                 comp_map = {label: (pos, n) for label, pos, n in info["components"]}
-                m1, m2, m3, m4, m5 = st.columns(5)
-                m1.metric("Composite Score", f"{info['score']:.0f}")
-                for col, label in zip((m2, m3, m4, m5), ("Reviews", "XHS", "LIHKG", "YouTube")):
+                metric_cols = st.columns(1 + len(_source_labels))
+                metric_cols[0].metric("Composite Score", f"{info['score']:.0f}")
+                for col, label in zip(metric_cols[1:], _source_labels):
                     if label in comp_map:
                         pos, n = comp_map[label]
                         col.metric(f"{label} % positive", f"{pos:.0f}%", help=f"n={n}")
@@ -1054,8 +1131,8 @@ with tab_brand_health:
                 if not xb.empty:
                     xb = xb[xb["sentiment"].isin(_VALID_SENTIMENTS)]
 
-                st.markdown("**Why customers hesitate — combined LIHKG + XHS + YouTube signal**")
-                barrier_cols = st.columns(3)
+                st.markdown("**Why customers hesitate — combined LIHKG + XHS + YouTube + Instagram signal**")
+                barrier_cols = st.columns(4)
                 with barrier_cols[0]:
                     st.caption("LIHKG posts flagged as a purchase-barrier signal")
                     lb = lihkg_bh[lihkg_bh["mentioned_brands_list"] == focus_brand] if not lihkg_bh.empty else pd.DataFrame()
@@ -1096,6 +1173,22 @@ with tab_brand_health:
                         )
                         st.dataframe(
                             yb_barrier[["comment_display", "sentiment"]].rename(
+                                columns={"comment_display": "Comment (EN)", "sentiment": "Sentiment"}
+                            ),
+                            width='stretch', hide_index=True, height=250,
+                        )
+                with barrier_cols[3]:
+                    st.caption("Instagram comments flagged as a purchase-barrier signal")
+                    ib = instagram_bh[instagram_bh["brand"] == focus_brand] if not instagram_bh.empty else pd.DataFrame()
+                    ib_barrier = ib[ib["is_purchase_barrier_signal"] == 1] if not ib.empty else pd.DataFrame()
+                    if ib_barrier.empty:
+                        st.info("None found (or Instagram excluded for this brand — see card above).")
+                    else:
+                        ib_barrier = ib_barrier.assign(
+                            comment_display=ib_barrier["comment_text_en"].fillna(ib_barrier["comment_text"])
+                        )
+                        st.dataframe(
+                            ib_barrier[["comment_display", "sentiment"]].rename(
                                 columns={"comment_display": "Comment (EN)", "sentiment": "Sentiment"}
                             ),
                             width='stretch', hide_index=True, height=250,
@@ -1813,8 +1906,9 @@ with tab_reviews_sentiment:
 
 # ---- Social Signals -----------------------------------------------------------
 with tab_social_signals:
-    sub_xhs_pane, sub_lihkg_pane, sub_youtube_pane, sub_instagram_pane = st.tabs(
-        ["Customer Feedback (XHS)", "Customer Signals (LIHKG)", "Customer Signals (YouTube)", "Customer Signals (Instagram)"]
+    sub_xhs_pane, sub_lihkg_pane, sub_youtube_pane, sub_instagram_pane, sub_facebook_pane = st.tabs(
+        ["Customer Feedback (XHS)", "Customer Signals (LIHKG)", "Customer Signals (YouTube)",
+         "Customer Signals (Instagram)", "Customer Feedback (Facebook)"]
     )
     with sub_xhs_pane:
         if xhs.empty:
@@ -2379,6 +2473,9 @@ with tab_social_signals:
 
     with sub_instagram_pane:
         instagram_signals.render()
+
+    with sub_facebook_pane:
+        facebook_signals.render()
 
 # ---- Catalog Explorer ----------------------------------------------------------
 with tab_catalog:
@@ -3328,9 +3425,9 @@ with tab_trends_demand:
     with sub_demand_pane:
         st.subheader("Demand Signals — search interest vs. scraped activity")
         st.caption(
-            "Google Trends search index (Hong Kong) vs. monthly review, XHS post, and "
-            "YouTube comment volume. Only brands with a manually verified, uncontaminated "
-            "trend export are charted — see the warning below for why."
+            "Google Trends search index (Hong Kong) vs. monthly review, XHS post, "
+            "YouTube comment, and Instagram comment volume. Only brands with a manually "
+            "verified, uncontaminated trend export are charted — see the warning below for why."
         )
 
         _demand_brand_options = sorted(set(all_brands) | demand_signals.RELIABLE_BRANDS)
@@ -3355,6 +3452,7 @@ with tab_trends_demand:
                 monthly_reviews = demand_signals.get_monthly_review_counts(demand_brand, db_path)
                 monthly_xhs = demand_signals.get_monthly_xhs_counts(demand_brand, db_path)
                 monthly_youtube = youtube_signals.get_monthly_comment_counts(demand_brand)
+                monthly_instagram = instagram_signals.get_monthly_comment_counts(demand_brand)
 
                 _dm_dates = pd.to_datetime(monthly_search["month"], format="%Y-%m")
                 _dm_years = sorted(_dm_dates.dt.year.unique().tolist())
@@ -3386,11 +3484,13 @@ with tab_trends_demand:
                     monthly_reviews = monthly_reviews.iloc[0:0]
                     monthly_xhs = monthly_xhs.iloc[0:0]
                     monthly_youtube = monthly_youtube.iloc[0:0]
+                    monthly_instagram = monthly_instagram.iloc[0:0]
                 else:
                     monthly_search = _dm_filter(monthly_search)
                     monthly_reviews = _dm_filter(monthly_reviews)
                     monthly_xhs = _dm_filter(monthly_xhs)
                     monthly_youtube = _dm_filter(monthly_youtube)
+                    monthly_instagram = _dm_filter(monthly_instagram)
 
                 if monthly_search.empty:
                     st.info("No data for the selected Year/Quarter/Month filter.")
@@ -3400,11 +3500,13 @@ with tab_trends_demand:
                         .merge(monthly_reviews, on="month", how="left")
                         .merge(monthly_xhs, on="month", how="left")
                         .merge(monthly_youtube, on="month", how="left")
+                        .merge(monthly_instagram, on="month", how="left")
                         .sort_values("month")
                     )
                     combined["review_count"] = combined["review_count"].fillna(0)
                     combined["xhs_count"] = combined["xhs_count"].fillna(0)
                     combined["youtube_count"] = combined["youtube_count"].fillna(0)
+                    combined["instagram_count"] = combined["instagram_count"].fillna(0)
 
                     fig = make_subplots(specs=[[{"secondary_y": True}]])
                     fig.add_trace(
@@ -3417,6 +3519,10 @@ with tab_trends_demand:
                     )
                     fig.add_trace(
                         go.Bar(x=combined["month"], y=combined["youtube_count"], name="YouTube Comments", marker_color="#dc2626"),
+                        secondary_y=False,
+                    )
+                    fig.add_trace(
+                        go.Bar(x=combined["month"], y=combined["instagram_count"], name="Instagram Comments", marker_color="#8b5cf6"),
                         secondary_y=False,
                     )
                     fig.add_trace(
@@ -3442,11 +3548,11 @@ with tab_trends_demand:
 
                     fig.update_layout(
                         barmode="group",
-                        title=f"{demand_brand} — Search Index vs. Reviews vs. XHS Posts vs. YouTube Comments",
+                        title=f"{demand_brand} — Search Index vs. Reviews vs. XHS Posts vs. YouTube Comments vs. Instagram Comments",
                         height=480,
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                     )
-                    fig.update_yaxes(title_text="Reviews / XHS Posts / YouTube Comments (count)", secondary_y=False)
+                    fig.update_yaxes(title_text="Reviews / XHS Posts / YouTube Comments / Instagram Comments (count)", secondary_y=False)
                     fig.update_yaxes(title_text="Search Index (0–100)", secondary_y=True)
                     st.plotly_chart(fig, width="stretch")
 
@@ -3610,6 +3716,27 @@ with tab_trends_demand:
                 fig_yt.add_hline(y=0, line_dash="dash", line_color="#94a3b8", row=2, col=1)
                 fig_yt.update_layout(height=560)
                 st.plotly_chart(fig_yt, width="stretch")
+
+                st.markdown("**Instagram volume + sentiment**")
+                st.caption(
+                    f"{int(mt['instagram_comment_count'].sum()):,} on-topic Instagram comments across "
+                    f"{mt['brand'].nunique()} brand(s) and {mt['month'].nunique()} month(s) in the "
+                    "current filter. Not included in the anomaly flags below yet — volume per "
+                    "brand-month is still thin (see Data Notes)."
+                )
+                fig_ig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+                                        subplot_titles=("Instagram comment count", "Avg. Instagram sentiment (-1 to 1)"))
+                for brand in sorted(mt["brand"].unique()):
+                    b = mt[mt["brand"] == brand]
+                    color = BRAND_COLORS.get(brand)
+                    fig_ig.add_scatter(x=b["month"], y=b["instagram_comment_count"], mode="lines+markers",
+                                        name=brand, legendgroup=brand, line=dict(color=color), row=1, col=1)
+                    fig_ig.add_scatter(x=b["month"], y=b["avg_instagram_sentiment"], mode="lines+markers",
+                                        name=brand, legendgroup=brand, showlegend=False,
+                                        line=dict(color=color), row=2, col=1)
+                fig_ig.add_hline(y=0, line_dash="dash", line_color="#94a3b8", row=2, col=1)
+                fig_ig.update_layout(height=560)
+                st.plotly_chart(fig_ig, width="stretch")
 
                 st.markdown("**Flagged anomalies**")
                 st.caption(
@@ -3845,6 +3972,40 @@ with tab_notes:
   same caveat as LIHKG forum posts, but here reactions are to a specific
   video (which may itself be an ad, an unboxing, or a try-on), not a
   general product discussion thread.
+
+**Customer signals (Instagram)**
+- **Volume is thin and uneven across brands** \u2014 of 712 HK posts discovered
+  (hashtag search + direct profile crawls of known reseller/official
+  accounts), 388 were excluded as not actually about their tagged brand or
+  not lens-relevant at all (see below), leaving 324 clean posts / 586
+  post-relevant comments, and \u2014 after also requiring the comment itself to
+  be on-topic \u2014 on-topic comment counts of Olens=149, Acuvue=27,
+  CooperVision=4, Alcon=0, Bausch & Lomb=0. Alcon and Bausch & Lomb
+  currently have too few qualifying comments (<5) to appear as an Instagram
+  score anywhere in the dashboard \u2014 expected to improve as more accounts/
+  hashtags are scraped.
+- **Three relevance layers, mostly LLM-scored, not human-reviewed** \u2014 a
+  hashtag or profile crawl can surface a post that isn't actually about the
+  tagged brand (`brand_relevant`, LLM-checked \u2014 e.g. a general optical shop's
+  own post history includes plenty of other brands' products, or a reseller
+  hashtag-stuffs a dozen brand tags onto one post regardless of what's
+  pictured), a post can carry no explicit contact-lens term at all
+  (`is_lens_relevant` at post level, a cheap keyword whitelist, not LLM), and
+  even on a genuinely relevant post, individual comments can drift off-topic
+  (`is_lens_relevant` at comment level, LLM-checked \u2014 e.g. a celebrity
+  brand-tie-in post draws comments about the celebrity, not the product).
+  All three are flagged and excluded from scoring, not silently dropped \u2014
+  see the Social Signals tab for the exclusion list.
+- **A handful of accounts can dominate a brand's aggregate** \u2014 Olens's
+  on-topic volume is driven almost entirely by three accounts
+  (`constation88`, `bqlens`, the official `olenshk`); with account counts
+  this low, read the composite score's Instagram component as "sentiment on
+  these accounts' posts," not "sentiment on the brand," until account
+  diversity grows.
+- **Comments are unsolicited viewer reactions, not product reviews** \u2014 same
+  caveat as YouTube/LIHKG, but here reactions are to a specific post (which
+  may itself be a paid promotion, an unboxing, or a price-list graphic), not
+  a general product discussion thread.
 
 **General**
 - **Review and post dates** span July 2025 to June 2026 (\u2248 12 months).
