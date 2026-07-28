@@ -782,11 +782,37 @@ tab_overview, tab_brand_health, tab_price, tab_reviews_sentiment, tab_social_sig
 with tab_overview:
     st.subheader("Brand health scorecard")
     st.caption(_site_caption(reviews_f, "review_date", "reviews"))
+    st.caption(
+        "Social columns: XHS posts, LIHKG posts, YouTube/Instagram comments "
+        "(on-topic only — see Social Signals for what that excludes), and "
+        "Facebook reviews. See Brand Health for sentiment blended across "
+        "these sources."
+    )
 
+    # Per-brand social counts — same source dataframes/helpers as the Brand
+    # Health tab (on-topic filtering for YouTube/Instagram, raw mention counts
+    # for XHS/LIHKG/Facebook), just scoped to one brand at a time here.
     rows = []
     for b in selected_brands:
         bp = products_f[products_f["brand"] == b]
         br = reviews_f[reviews_f["brand"] == b]
+        xhs_n = len(xhs[xhs["brand_mentioned"] == b]) if not xhs.empty else 0
+        lihkg_n = (
+            lihkg_df["mentioned_brands_list"].apply(lambda lst: b in lst).sum()
+            if not lihkg_df.empty else 0
+        )
+        youtube_n = (
+            len(youtube_signals.on_topic_comments(youtube_comments_df[youtube_comments_df["brand"] == b]))
+            if not youtube_comments_df.empty else 0
+        )
+        instagram_n = (
+            len(instagram_signals.on_topic_comments(instagram_comments_df[instagram_comments_df["brand"] == b]))
+            if not instagram_comments_df.empty else 0
+        )
+        facebook_n = (
+            facebook_reviews_df["mentioned_brands_list"].apply(lambda lst: b in lst).sum()
+            if not facebook_reviews_df.empty else 0
+        )
         rows.append(
             {
                 "Brand": b,
@@ -794,6 +820,12 @@ with tab_overview:
                 "Stores": bp["store_name"].nunique(),
                 "Weighted rating": round(weighted_rating(bp), 2),
                 "Reviews collected": len(br),
+                "XHS posts": xhs_n,
+                "LIHKG posts": lihkg_n,
+                "YouTube comments": youtube_n,
+                "Instagram comments": instagram_n,
+                "Facebook reviews": facebook_n,
+                "Social signals": xhs_n + lihkg_n + youtube_n + instagram_n + facebook_n,
             }
         )
     scorecard = pd.DataFrame(rows)
@@ -852,7 +884,11 @@ with tab_brand_health:
         what "on-topic" excludes), <b>Instagram</b> (LLM-labeled comment sentiment,
         on-topic only), and <b>Facebook</b> (rule-derived from the reviewer's own
         recommend/not-recommend flag — the one source here that isn't LLM-labeled, and
-        the only one with no "neutral" bucket). Each source is weighted by &radic;n so a
+        the only one with no "neutral" bucket, so this treatment is a no-op for it).
+        Every source's "% positive" counts <b>positive+neutral</b> together (not positive
+        alone) — a brand only loses points here for actual negative sentiment, matching
+        how the Social Signals tabs frame "not negative" as a good outcome; hover a card
+        to see its raw n. Each source is weighted by &radic;n so a
         large review base doesn't drown out a thinner one, but a source with fewer than 5
         qualifying items for a brand is excluded entirely rather than let a tiny sample
         swing the score — excluded sources are shown on each card. LIHKG and Facebook are
@@ -874,16 +910,23 @@ with tab_brand_health:
     MIN_N_FOR_SOURCE = 5
     _VALID_SENTIMENTS = ["positive", "neutral", "negative"]
 
-    def _source_pos_pct(sub_df: pd.DataFrame, sentiment_col: str = "sentiment"):
+    def _source_pos_pct(sub_df: pd.DataFrame, sentiment_col: str = "sentiment", include_neutral: bool = False):
         """(pos_pct, n) for a dataframe already filtered to one brand/source, using
-        only valid sentiment labels. Returns (None, 0) if there's nothing usable."""
+        only valid sentiment labels. Returns (None, 0) if there's nothing usable.
+
+        include_neutral=True counts neutral alongside positive in the numerator
+        (still divided by the same valid n) — used for YouTube/Instagram, whose
+        short unsolicited comments skew neutral far more than star-rated Reviews
+        or long-form XHS/LIHKG posts do, so a positive-only % reads misleadingly
+        low next to the Social Signals tabs' framing of "not negative" as good."""
         if sub_df.empty or sentiment_col not in sub_df.columns:
             return None, 0
         valid = sub_df[sub_df[sentiment_col].isin(_VALID_SENTIMENTS)]
         n = len(valid)
         if n == 0:
             return None, 0
-        return (valid[sentiment_col] == "positive").mean() * 100, n
+        counted = ["positive", "neutral"] if include_neutral else ["positive"]
+        return valid[sentiment_col].isin(counted).mean() * 100, n
 
     # Reviews sentiment — same rating-derived rule as the Reviews & Sentiment tab.
     rev_bh = reviews_f.dropna(subset=["rating"]).copy()
@@ -931,27 +974,27 @@ with tab_brand_health:
 
     def _brand_score(brand: str):
         components = []  # list of (label, pos_pct, n)
-        pos, n = _source_pos_pct(rev_bh[rev_bh["brand"] == brand])
+        pos, n = _source_pos_pct(rev_bh[rev_bh["brand"] == brand], include_neutral=True)
         if pos is not None and n >= MIN_N_FOR_SOURCE:
             components.append(("Reviews", pos, n))
         xb_ = xhs_bh[xhs_bh["brand_mentioned"] == brand] if not xhs_bh.empty else pd.DataFrame()
-        pos, n = _source_pos_pct(xb_)
+        pos, n = _source_pos_pct(xb_, include_neutral=True)
         if pos is not None and n >= MIN_N_FOR_SOURCE:
             components.append(("XHS", pos, n))
         lb_ = lihkg_bh[lihkg_bh["mentioned_brands_list"] == brand] if not lihkg_bh.empty else pd.DataFrame()
-        pos, n = _source_pos_pct(lb_)
+        pos, n = _source_pos_pct(lb_, include_neutral=True)
         if pos is not None and n >= MIN_N_FOR_SOURCE:
             components.append(("LIHKG", pos, n))
         yb_ = youtube_bh[youtube_bh["brand"] == brand] if not youtube_bh.empty else pd.DataFrame()
-        pos, n = _source_pos_pct(yb_)
+        pos, n = _source_pos_pct(yb_, include_neutral=True)
         if pos is not None and n >= MIN_N_FOR_SOURCE:
             components.append(("YouTube", pos, n))
         ib_ = instagram_bh[instagram_bh["brand"] == brand] if not instagram_bh.empty else pd.DataFrame()
-        pos, n = _source_pos_pct(ib_)
+        pos, n = _source_pos_pct(ib_, include_neutral=True)
         if pos is not None and n >= MIN_N_FOR_SOURCE:
             components.append(("Instagram", pos, n))
         fb_ = facebook_bh[facebook_bh["mentioned_brands_list"] == brand] if not facebook_bh.empty else pd.DataFrame()
-        pos, n = _source_pos_pct(fb_)
+        pos, n = _source_pos_pct(fb_, include_neutral=True)
         if pos is not None and n >= MIN_N_FOR_SOURCE:
             components.append(("Facebook", pos, n))
 
@@ -1045,7 +1088,7 @@ with tab_brand_health:
                 if not rb.empty:
                     rb["month"] = rb["review_date"].dt.to_period("M").astype(str)
                     g = rb.groupby("month")["sentiment"].agg(
-                        pos=lambda s: (s == "positive").sum(), n="count"
+                        pos=lambda s: s.isin(["positive", "neutral"]).sum(), n="count"
                     ).reset_index()
                     parts.append(g)
                 xb_b = xhs_bh[xhs_bh["brand_mentioned"] == b].dropna(subset=["publish_date"]).copy() if not xhs_bh.empty else pd.DataFrame()
@@ -1053,7 +1096,7 @@ with tab_brand_health:
                     xb_b = xb_b[xb_b["sentiment"].isin(_VALID_SENTIMENTS)]
                     xb_b["month"] = xb_b["publish_date"].dt.to_period("M").astype(str)
                     g = xb_b.groupby("month")["sentiment"].agg(
-                        pos=lambda s: (s == "positive").sum(), n="count"
+                        pos=lambda s: s.isin(["positive", "neutral"]).sum(), n="count"
                     ).reset_index()
                     parts.append(g)
                 yb_b = youtube_bh[youtube_bh["brand"] == b].copy() if not youtube_bh.empty else pd.DataFrame()
@@ -1064,7 +1107,7 @@ with tab_brand_health:
                 if not yb_b.empty:
                     yb_b["month"] = yb_b["published_at"].dt.to_period("M").astype(str)
                     g = yb_b.groupby("month")["sentiment"].agg(
-                        pos=lambda s: (s == "positive").sum(), n="count"
+                        pos=lambda s: s.isin(["positive", "neutral"]).sum(), n="count"
                     ).reset_index()
                     parts.append(g)
                 ib_b = instagram_bh[instagram_bh["brand"] == b].copy() if not instagram_bh.empty else pd.DataFrame()
@@ -1075,7 +1118,7 @@ with tab_brand_health:
                 if not ib_b.empty:
                     ib_b["month"] = ib_b["published_at"].dt.to_period("M").astype(str)
                     g = ib_b.groupby("month")["sentiment"].agg(
-                        pos=lambda s: (s == "positive").sum(), n="count"
+                        pos=lambda s: s.isin(["positive", "neutral"]).sum(), n="count"
                     ).reset_index()
                     parts.append(g)
                 if not parts:
@@ -1119,13 +1162,27 @@ with tab_brand_health:
             else:
                 comp_map = {label: (pos, n) for label, pos, n in info["components"]}
                 metric_cols = st.columns(1 + len(_source_labels))
-                metric_cols[0].metric("Composite Score", f"{info['score']:.0f}")
+                metric_cols[0].metric(
+                    "Composite Score", f"{info['score']:.0f}",
+                    help="√n-weighted blend of the % positive cards to the right. Sources "
+                         f"with fewer than {MIN_N_FOR_SOURCE} qualifying items are dropped entirely "
+                         "(shown n/a) rather than let a thin sample swing the score. Full "
+                         "methodology in the box at the top of this tab.",
+                )
                 for col, label in zip(metric_cols[1:], _source_labels):
                     if label in comp_map:
                         pos, n = comp_map[label]
-                        col.metric(f"{label} % positive", f"{pos:.0f}%", help=f"n={n}")
+                        col.metric(f"{label} % positive", f"{pos:.0f}%", help=f"n={n} (positive+neutral counted as positive)")
                     else:
                         col.metric(f"{label} % positive", "n/a", help=f"fewer than {MIN_N_FOR_SOURCE} qualifying items")
+                st.caption(
+                    f"Each card above is scored for **{focus_brand} only**. Compare carefully "
+                    "with the Social Signals tabs: those show pooled on-topic totals across "
+                    "*all* brands on the \"All Brands\" view, which can be dominated by "
+                    "whichever brand has the most volume for that source — a different "
+                    "denominator than the brand-specific percentages here. Every source's "
+                    "\"% positive\" counts neutral alongside positive (hover a card for its n)."
+                )
 
                 xb = xhs_bh[xhs_bh["brand_mentioned"] == focus_brand].dropna(subset=["publish_date"]).copy() if not xhs_bh.empty else pd.DataFrame()
                 if not xb.empty:
@@ -2703,8 +2760,9 @@ with tab_catalog:
 # ---- Research & Triangulation ---------------------------------------------------
 with tab_research_triangulation:
     _pillar_names = list(triangulation_data.keys())
+    _BEFORE_AFTER_SECTION = "Before vs After: Social Data Added"
     selected_section = st.pills(
-        "Section", ["Research Findings"] + _pillar_names,
+        "Section", ["Research Findings"] + _pillar_names + [_BEFORE_AFTER_SECTION],
         default="Research Findings", key="triangulation_section_pills",
     )
     if selected_section is None:
@@ -2767,8 +2825,73 @@ with tab_research_triangulation:
                     )
                 st.dataframe(display_df, width="stretch", hide_index=True)
 
+    if selected_section == _BEFORE_AFTER_SECTION:
+        def _find_snapshot_dir(history_dir: str, suffix: str) -> str | None:
+            if not os.path.isdir(history_dir):
+                return None
+            matches = sorted(d for d in os.listdir(history_dir) if d.endswith(suffix))
+            return os.path.join(history_dir, matches[-1]) if matches else None
+
+        history_dir = os.path.join(triangulation_dir, "history")
+        before_dir = _find_snapshot_dir(history_dir, "_before-social")
+        after_dir = _find_snapshot_dir(history_dir, "_after-social")
+
+        st.caption(
+            "Compares the 'Barrier Matches' bubble chart above before and after "
+            "YouTube comments, Instagram comments, and Facebook reviews were added to "
+            "the classification pool (previously: reviews, XHS posts, reputation.csv only)."
+        )
+        if not before_dir or not after_dir:
+            st.info(
+                "Missing a snapshot to compare. Expected folders under "
+                f"`{history_dir}` ending in `_before-social` and `_after-social` — "
+                "see triangulation/README.md's archiving notes."
+            )
+        else:
+            before_bm = pd.read_csv(os.path.join(before_dir, "prompt_b_barrier_matches.csv"))
+            after_bm = pd.read_csv(os.path.join(after_dir, "prompt_b_barrier_matches.csv"))
+            st.caption(f"Before: `{os.path.basename(before_dir)}`  |  After: `{os.path.basename(after_dir)}`")
+
+            merged = before_bm[["brand", "barrier", "match_count"]].merge(
+                after_bm[["brand", "barrier", "match_count"]],
+                on=["brand", "barrier"], how="outer", suffixes=("_before", "_after"),
+            ).fillna(0)
+            merged["match_count_before"] = merged["match_count_before"].astype(int)
+            merged["match_count_after"] = merged["match_count_after"].astype(int)
+            merged["delta"] = merged["match_count_after"] - merged["match_count_before"]
+            merged = merged[merged["delta"] != 0]
+
+            b1, b2, b3 = st.columns(3)
+            b1.metric("Total matches before", int(before_bm["match_count"].sum()))
+            b2.metric("Total matches after", int(after_bm["match_count"].sum()),
+                       delta=int(after_bm["match_count"].sum() - before_bm["match_count"].sum()))
+            b3.metric("Brand x barrier cells changed", len(merged))
+
+            if merged.empty:
+                st.caption("No change in any brand x barrier match count between the two snapshots.")
+            else:
+                merged = merged.sort_values("delta", key=lambda s: s.abs(), ascending=True)
+                merged["label"] = merged["barrier"] + " — " + merged["brand"]
+                fig_delta = px.bar(
+                    merged, x="delta", y="label", color="brand", orientation="h",
+                    color_discrete_map={**BRAND_COLORS, "other": "#94a3b8"},
+                    labels={"delta": "Change in matches (after − before)", "label": ""},
+                    hover_data={"match_count_before": True, "match_count_after": True, "brand": False, "label": False},
+                )
+                fig_delta.update_layout(
+                    height=max(420, 24 * len(merged)), showlegend=True,
+                    legend=dict(orientation="h", y=1.05),
+                )
+                fig_delta.add_vline(x=0, line_width=1, line_color="#94a3b8")
+                st.plotly_chart(fig_delta, width="stretch")
+                st.caption(
+                    "Only brand x barrier cells whose match count changed are shown. "
+                    "Bars to the right of zero are barriers that surfaced more (or newly) "
+                    "in YouTube/Instagram/Facebook text; bars to the left dropped."
+                )
+
     for label, content in (
-        [] if selected_section == "Research Findings"
+        [] if selected_section in ("Research Findings", _BEFORE_AFTER_SECTION)
         else [(selected_section, triangulation_data[selected_section])]
     ):
         with st.container():
