@@ -118,6 +118,28 @@ def purchase_barrier_rate(exploded_df: pd.DataFrame) -> pd.DataFrame:
     return g.reset_index().rename(columns={"mentioned_brands_list": "brand"})
 
 
+def _render_summary_metrics(reviews_df: pd.DataFrame) -> None:
+    """One-row metric-card summary: Reviews, then the full sentiment
+    breakdown (positive/neutral/negative — no "mixed" bucket, since
+    Facebook's sentiment is rule-derived from a binary flag, not
+    LLM-classified — see this module's docstring) plus purchase-barrier
+    rate. Reviews = Positive + Neutral + Negative always reconciles, unlike
+    earlier per-brand cards on other sources that silently dropped Neutral.
+    Used for both the All Brands aggregate and each per-brand tab."""
+    sent_counts = reviews_df["sentiment"].value_counts() if not reviews_df.empty else pd.Series(dtype=int)
+    barrier_n = int(reviews_df["is_purchase_barrier_signal"].sum()) if not reviews_df.empty else 0
+    cols = st.columns(5)
+    cols[0].metric("Reviews", len(reviews_df))
+    cols[1].metric("Positive", int(sent_counts.get("positive", 0)))
+    cols[2].metric("Neutral", int(sent_counts.get("neutral", 0)))
+    cols[3].metric("Negative", int(sent_counts.get("negative", 0)))
+    cols[4].metric(
+        "Purchase-barrier", barrier_n,
+        delta=f"{barrier_n / len(reviews_df) * 100:.0f}% of reviews" if len(reviews_df) else None,
+        delta_color="off",
+    )
+
+
 def render(db_path: str = DEFAULT_DB_PATH):
     if not os.path.exists(db_path):
         st.info(
@@ -166,6 +188,9 @@ def render(db_path: str = DEFAULT_DB_PATH):
     all_tab, *brand_tabs = st.tabs(["All Brands"] + brands)
 
     with all_tab:
+        _render_summary_metrics(reviews)
+        st.divider()
+
         c1, c2 = st.columns(2)
         with c1:
             vol_by_brand = (
@@ -224,17 +249,7 @@ def render(db_path: str = DEFAULT_DB_PATH):
             b_reviews = exploded[exploded["mentioned_brands_list"] == brand]
             st.caption(f"{len(b_reviews)} reviews mentioning {brand}")
 
-            sent_counts = b_reviews["sentiment"].value_counts()
-            m_cols = st.columns(4)
-            m_cols[0].metric("Reviews", len(b_reviews))
-            m_cols[1].metric("Positive", int(sent_counts.get("positive", 0)))
-            m_cols[2].metric("Negative", int(sent_counts.get("negative", 0)))
-            barrier_n = int(b_reviews["is_purchase_barrier_signal"].sum())
-            m_cols[3].metric(
-                "Purchase-barrier reviews", barrier_n,
-                delta=f"{barrier_n / len(b_reviews) * 100:.0f}% of reviews" if len(b_reviews) else None,
-                delta_color="off",
-            )
+            _render_summary_metrics(b_reviews)
 
             theme_sentiment = (
                 b_reviews.explode("themes_list")

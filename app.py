@@ -2410,9 +2410,34 @@ with tab_social_signals:
             if not lihkg_brands:
                 st.info("No posts with a recognized brand mention yet.")
             else:
+                def _lihkg_summary_metrics(df: pd.DataFrame) -> None:
+                    """Posts, then the FULL sentiment breakdown (positive/
+                    neutral/negative/mixed — LIHKG's sentiment vocabulary has
+                    all four) plus purchase-barrier rate. Posts = Positive +
+                    Neutral + Negative + Mixed always reconciles — earlier
+                    cards on this and other sources silently dropped Neutral
+                    (and here, Mixed too), making most of "Posts" look
+                    unaccounted for."""
+                    sent_counts = df["sentiment"].value_counts() if not df.empty else pd.Series(dtype=int)
+                    barrier_n = int(df["is_purchase_barrier_signal"].sum()) if not df.empty else 0
+                    cols = st.columns(6)
+                    cols[0].metric("Posts", len(df))
+                    cols[1].metric("Positive", int(sent_counts.get("positive", 0)))
+                    cols[2].metric("Neutral", int(sent_counts.get("neutral", 0)))
+                    cols[3].metric("Negative", int(sent_counts.get("negative", 0)))
+                    cols[4].metric("Mixed", int(sent_counts.get("mixed", 0)))
+                    cols[5].metric(
+                        "Purchase-barrier", barrier_n,
+                        delta=f"{barrier_n / len(df) * 100:.0f}% of posts" if len(df) else None,
+                        delta_color="off",
+                    )
+
                 all_tab, *brand_tabs = st.tabs(["All Brands"] + lihkg_brands)
 
                 with all_tab:
+                    _lihkg_summary_metrics(lihkg_exploded)
+                    st.divider()
+
                     c1, c2 = st.columns(2)
                     with c1:
                         vol_by_brand = (
@@ -2471,15 +2496,7 @@ with tab_social_signals:
                         b_posts = lihkg_exploded[lihkg_exploded["mentioned_brands_list"] == brand]
                         st.caption(f"{len(b_posts)} posts mentioning {brand}")
 
-                        sent_counts = b_posts["sentiment"].value_counts()
-                        m_cols = st.columns(4)
-                        m_cols[0].metric("Posts", len(b_posts))
-                        m_cols[1].metric("Negative", int(sent_counts.get("negative", 0)))
-                        m_cols[2].metric("Positive", int(sent_counts.get("positive", 0)))
-                        barrier_n = int(b_posts["is_purchase_barrier_signal"].sum())
-                        m_cols[3].metric("Purchase-barrier posts", barrier_n,
-                            delta=f"{barrier_n / len(b_posts) * 100:.0f}% of posts" if len(b_posts) else None,
-                            delta_color="off")
+                        _lihkg_summary_metrics(b_posts)
 
                         theme_sentiment = (
                             b_posts.explode("themes_list")
@@ -2756,9 +2773,10 @@ with tab_research_triangulation:
     ):
         with st.container():
             st.caption(
-                "Checks our own scraped review/social data against the research framework "
-                "(channel taxonomy, switching barriers, attribute-importance quadrant) "
-                "described in insight.txt. External data only. Regenerate via "
+                "Checks our own scraped review/social data (reviews, XHS, YouTube, "
+                "Instagram, Facebook) against the research framework (channel taxonomy, "
+                "switching barriers, attribute-importance quadrant) described in "
+                "insight.txt. External data only. Regenerate via "
                 "`python triangulation/run_triangulation.py` — see triangulation/README.md."
             )
             if tri_mtime:
