@@ -103,6 +103,16 @@ BRAND_ALIASES = {
 REGION_CODE = {"HK": "HK", "TH": "TH"}
 RELEVANCE_LANGUAGE = {"HK": "zh-Hant", "TH": "th"}
 
+# Copied verbatim from xhs_scraper_v2.py's VALID_THEMES — same product
+# domain, shared vocabulary keeps themes comparable across every source
+# (XHS, LIHKG, YouTube, Instagram, Facebook) rather than each inventing
+# its own taxonomy that means the same thing with different words.
+VALID_THEMES = [
+    "comfort", "dryness", "colour", "price", "value",
+    "packaging", "delivery", "authenticity", "brand_comparison",
+    "recommendation", "warning", "vision_clarity",
+]
+
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 
 TRANSLATE_BATCH_SIZE = 20
@@ -197,6 +207,7 @@ _MIGRATION_COLUMNS = {
         "sentiment": "TEXT",
         "is_purchase_barrier_signal": "INTEGER",
         "is_lens_relevant": "INTEGER",
+        "themes": "TEXT",
     },
     "youtube_videos": {
         "title_en": "TEXT",
@@ -298,14 +309,16 @@ def _llm_classify_batch(texts_en: List[str], client: OpenAI) -> List[dict]:
     for manual review rather than being silently hidden)."""
     if not texts_en:
         return []
-    fallback = {"sentiment": "neutral", "is_purchase_barrier_signal": False, "is_lens_relevant": True}
+    fallback = {"sentiment": "neutral", "is_purchase_barrier_signal": False, "is_lens_relevant": True, "themes": []}
     numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts_en))
+    theme_list = ", ".join(VALID_THEMES)
     prompt = f"""Classify these {len(texts_en)} YouTube comments left on contact lens brand videos.
 For each comment, return an object with:
 - "i": the comment's number as shown below (integer)
 - "sentiment": one of "positive", "negative", "neutral", "mixed"
 - "is_purchase_barrier_signal": true if the comment expresses a reason for not buying/switching (price, availability, comfort, trust, etc.), else false
 - "is_lens_relevant": true if the comment is actually about the contact lenses/product — feedback, a question about the lenses, praise/complaints about wearing them, purchase intent, or naming a specific product/color/style (even just a shade nickname, without the word "lens" — shoppers often refer to colored contacts by their style name alone). false if it's off-topic chatter unrelated to the product itself — e.g. commenting on a featured model/celebrity's appearance or identity, discussing an unrelated topic (a K-pop group's name, someone else's comment/argument), or a generic reaction with no product context.
+- "themes": 1-4 items chosen from {theme_list} — leave empty if none clearly apply
 
 Return ONLY a JSON array of objects, one per comment, no other text.
 
@@ -329,6 +342,7 @@ Comments:
                         "sentiment": str(p.get("sentiment", "neutral")),
                         "is_purchase_barrier_signal": bool(p.get("is_purchase_barrier_signal", False)),
                         "is_lens_relevant": bool(p.get("is_lens_relevant", True)),
+                        "themes": [t for t in (p.get("themes") or []) if t in VALID_THEMES],
                     }
         if len(by_index) != len(texts_en):
             log.warning(f"[LLM] Classify batch: expected {len(texts_en)}, got {len(by_index)} indexed")
@@ -681,6 +695,7 @@ def discover_and_extract(
                 "sentiment":       None,   # filled in below
                 "is_purchase_barrier_signal": None,
                 "is_lens_relevant": None,
+                "themes": None,
             })
         time.sleep(0.3)
 
@@ -706,6 +721,7 @@ def discover_and_extract(
             c["sentiment"] = label["sentiment"]
             c["is_purchase_barrier_signal"] = label["is_purchase_barrier_signal"]
             c["is_lens_relevant"] = label["is_lens_relevant"]
+            c["themes"] = label["themes"]
 
     return videos, all_comments
 
@@ -740,13 +756,14 @@ def save_comments(conn: sqlite3.Connection, comments: List[dict]) -> int:
                 """INSERT OR IGNORE INTO youtube_comments
                    (video_id, brand, market, author, comment_text, comment_text_en,
                     like_count, published_at, content_hash, scraped_at,
-                    sentiment, is_purchase_barrier_signal, is_lens_relevant)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    sentiment, is_purchase_barrier_signal, is_lens_relevant, themes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     c["video_id"], c["brand"], c["market"], c["author"],
                     c["comment_text"], c["comment_text_en"], c["like_count"],
                     c["published_at"], c["content_hash"], c["scraped_at"],
                     c["sentiment"], c["is_purchase_barrier_signal"], c["is_lens_relevant"],
+                    json.dumps(c["themes"], ensure_ascii=False) if c["themes"] is not None else None,
                 ),
             )
             if cur.rowcount == 1:
@@ -792,13 +809,18 @@ def retranslate_stale_comments(db_path: str = "output/youtube_data.db") -> int:
 
 
 def classify_existing(db_path: str = "output/youtube_data.db") -> int:
-    """Backfill sentiment/is_purchase_barrier_signal/is_lens_relevant for
-    comments missing is_lens_relevant — covers both never-classified rows
-    and rows classified before is_lens_relevant existed. Safe to re-run."""
+    """Backfill sentiment/is_purchase_barrier_signal/is_lens_relevant/themes
+    for comments missing is_lens_relevant OR themes — covers never-classified
+    rows, rows classified before is_lens_relevant existed, and rows
+    classified before themes existed (re-derives all four fields together
+    in that last case, rather than a themes-only call, since this is the
+    one shared classify path — a fresh sentiment/barrier/relevance judgment
+    on the same English text is expected to match the original closely).
+    Safe to re-run."""
     client = OpenAI()
     conn = open_db(db_path)
     rows = conn.execute(
-        "SELECT id, comment_text_en FROM youtube_comments WHERE is_lens_relevant IS NULL"
+        "SELECT id, comment_text_en FROM youtube_comments WHERE is_lens_relevant IS NULL OR themes IS NULL"
     ).fetchall()
     log.info(f"[CLASSIFY] {len(rows)} comments missing classification")
 
@@ -809,11 +831,12 @@ def classify_existing(db_path: str = "output/youtube_data.db") -> int:
         for row, label in zip(batch, labels):
             conn.execute(
                 """UPDATE youtube_comments
-                   SET sentiment = ?, is_purchase_barrier_signal = ?, is_lens_relevant = ?
+                   SET sentiment = ?, is_purchase_barrier_signal = ?, is_lens_relevant = ?, themes = ?
                    WHERE id = ?""",
                 (
                     label["sentiment"], int(label["is_purchase_barrier_signal"]),
-                    int(label["is_lens_relevant"]), row["id"],
+                    int(label["is_lens_relevant"]), json.dumps(label["themes"], ensure_ascii=False),
+                    row["id"],
                 ),
             )
             classified += 1

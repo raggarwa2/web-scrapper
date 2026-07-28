@@ -29,6 +29,7 @@ Lives in its own database (output/youtube_data.db by default), separate
 from lensdata.db — see youtube_scraper.py's module docstring.
 """
 
+import json
 import os
 import sqlite3
 
@@ -65,6 +66,15 @@ def load_youtube_data(db_path: str, mtime: float):
         comments = pd.DataFrame()
     finally:
         conn.close()
+
+    if not comments.empty:
+        def _parse_themes(val):
+            try:
+                return json.loads(val) if val else []
+            except Exception:
+                return []
+        comments["themes_list"] = comments["themes"].apply(_parse_themes) if "themes" in comments.columns else [[] for _ in range(len(comments))]
+
     return videos, comments
 
 
@@ -219,6 +229,32 @@ def render(db_path: str = DEFAULT_DB_PATH):
             st.plotly_chart(fig, width='stretch')
         st.caption("Views summed across all discovered videos per brand — a reach proxy, not unique viewers.")
 
+        _on_topic_all = on_topic_comments(comments)
+        if not _on_topic_all.empty:
+            theme_brand = (
+                _on_topic_all.explode("themes_list")
+                .groupby(["brand", "themes_list"])
+                .size().reset_index(name="count")
+            )
+            theme_brand = theme_brand[theme_brand["themes_list"].notna() & (theme_brand["themes_list"] != "")]
+            if not theme_brand.empty:
+                theme_order = (
+                    theme_brand.groupby("themes_list")["count"].sum()
+                    .sort_values(ascending=False)
+                    .head(15)
+                    .index
+                )
+                theme_brand = theme_brand[theme_brand["themes_list"].isin(theme_order)]
+                fig = px.bar(
+                    theme_brand, x="count", y="themes_list", color="brand",
+                    orientation="h",
+                    category_orders={"themes_list": list(reversed(list(theme_order)))},
+                    title="Top 15 themes across all brands",
+                    labels={"themes_list": "Theme", "count": "Mentions", "brand": "Brand"},
+                )
+                fig.update_layout(barmode="stack")
+                st.plotly_chart(fig, width='stretch')
+
     for brand, brand_tab in zip(brands, brand_tabs):
         with brand_tab:
             b_videos = videos[videos["brand"] == brand]
@@ -255,6 +291,28 @@ def render(db_path: str = DEFAULT_DB_PATH):
                     f"{n_off_topic} comment(s) excluded from the metrics above as off-topic "
                     "(audience chatter unrelated to the product) — still visible in Comments below."
                 )
+
+            theme_sentiment = (
+                b_comments_on_topic.explode("themes_list")
+                .groupby(["themes_list", "sentiment"])
+                .size().reset_index(name="count")
+            ) if not b_comments_on_topic.empty else pd.DataFrame()
+            theme_sentiment = theme_sentiment[theme_sentiment["themes_list"].notna() & (theme_sentiment["themes_list"] != "")] if not theme_sentiment.empty else theme_sentiment
+            if not theme_sentiment.empty:
+                theme_order = (
+                    theme_sentiment.groupby("themes_list")["count"].sum()
+                    .sort_values().index
+                )
+                fig = px.bar(
+                    theme_sentiment, x="count", y="themes_list", color="sentiment",
+                    orientation="h",
+                    category_orders={"themes_list": list(theme_order)},
+                    color_discrete_map={"positive": "#16a34a", "neutral": "#94a3b8", "negative": "#dc2626", "mixed": "#e8a33d"},
+                    title="Most discussed themes, by sentiment",
+                    labels={"themes_list": "Theme", "count": "Mentions"},
+                )
+                fig.update_layout(barmode="stack")
+                st.plotly_chart(fig, width='stretch')
 
             st.subheader("Purchase-barrier comments")
             barrier_comments = b_comments_on_topic[b_comments_on_topic["is_purchase_barrier_signal"] == 1] if not b_comments_on_topic.empty else b_comments_on_topic

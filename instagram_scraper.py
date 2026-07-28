@@ -194,6 +194,9 @@ _MIGRATION_COLUMNS = {
         "source_value": "TEXT",     # the hashtag word, or the queried username
         "brand_relevant": "INTEGER",  # NULL = not yet checked; see check_brand_relevance()
     },
+    "ig_comments": {
+        "themes": "TEXT",
+    },
 }
 
 
@@ -235,6 +238,16 @@ LENS_RELEVANCE_TERMS_EN = [
     "contact lens", "contact lenses", "contactlens", "coloured contact",
     "colored contact", "daily disposable", "monthly disposable",
     "toric lens", "1-day", "1 day", "acuvue",
+]
+
+# Copied verbatim from xhs_scraper_v2.py's VALID_THEMES — same product
+# domain, shared vocabulary keeps themes comparable across every source
+# (XHS, LIHKG, YouTube, Instagram, Facebook) rather than each inventing
+# its own taxonomy that means the same thing with different words.
+VALID_THEMES = [
+    "comfort", "dryness", "colour", "price", "value",
+    "packaging", "delivery", "authenticity", "brand_comparison",
+    "recommendation", "warning", "vision_clarity",
 ]
 LENS_RELEVANCE_TERMS_NONASCII = [
     "隱形眼鏡", "月拋", "日拋", "散光", "老花", "彩色隱形", "美瞳",
@@ -306,14 +319,16 @@ def _llm_classify_batch(texts_en: List[str], client: OpenAI) -> List[dict]:
     the two sources score comparably downstream."""
     if not texts_en:
         return []
-    fallback = {"sentiment": "neutral", "is_purchase_barrier_signal": False, "is_lens_relevant": True}
+    fallback = {"sentiment": "neutral", "is_purchase_barrier_signal": False, "is_lens_relevant": True, "themes": []}
     numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts_en))
+    theme_list = ", ".join(VALID_THEMES)
     prompt = f"""Classify these {len(texts_en)} Instagram comments left on contact lens brand posts.
 For each comment, return an object with:
 - "i": the comment's number as shown below (integer)
 - "sentiment": one of "positive", "negative", "neutral", "mixed"
 - "is_purchase_barrier_signal": true if the comment expresses a reason for not buying/switching (price, availability, comfort, trust, etc.), else false
 - "is_lens_relevant": true if the comment is actually about the contact lenses/product, false if it's off-topic chatter (a generic emoji reaction, praise for an unrelated model/celebrity, spam)
+- "themes": 1-4 items chosen from {theme_list} — leave empty if none clearly apply
 
 Return ONLY a JSON array of objects, one per comment, no other text.
 
@@ -337,6 +352,7 @@ Comments:
                         "sentiment": str(p.get("sentiment", "neutral")),
                         "is_purchase_barrier_signal": bool(p.get("is_purchase_barrier_signal", False)),
                         "is_lens_relevant": bool(p.get("is_lens_relevant", True)),
+                        "themes": [t for t in (p.get("themes") or []) if t in VALID_THEMES],
                     }
         if len(by_index) != len(texts_en):
             log.warning(f"[LLM] Classify batch: expected {len(texts_en)}, got {len(by_index)} indexed")
@@ -584,6 +600,7 @@ def extract_comment_fields(item: dict, post_id_by_url: Dict[str, str], brand: st
         "sentiment":       None,
         "is_purchase_barrier_signal": None,
         "is_lens_relevant": None,
+        "themes": None,
     }
 
 
@@ -685,6 +702,7 @@ def discover_and_extract(
                 c["sentiment"] = label["sentiment"]
                 c["is_purchase_barrier_signal"] = label["is_purchase_barrier_signal"]
                 c["is_lens_relevant"] = label["is_lens_relevant"]
+                c["themes"] = label["themes"]
 
     return posts, all_comments
 
@@ -722,13 +740,14 @@ def save_comments(conn: sqlite3.Connection, comments: List[dict]) -> int:
                 """INSERT OR IGNORE INTO ig_comments
                    (post_id, brand, market, author, comment_text, comment_text_en,
                     like_count, published_at, content_hash, scraped_at,
-                    sentiment, is_purchase_barrier_signal, is_lens_relevant)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    sentiment, is_purchase_barrier_signal, is_lens_relevant, themes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     c["post_id"], c["brand"], c["market"], c["author"],
                     c["comment_text"], c["comment_text_en"], c["like_count"],
                     c["published_at"], c["content_hash"], c["scraped_at"],
                     c["sentiment"], c["is_purchase_barrier_signal"], c["is_lens_relevant"],
+                    json.dumps(c["themes"], ensure_ascii=False) if c["themes"] is not None else None,
                 ),
             )
             if cur.rowcount == 1:
@@ -812,12 +831,14 @@ def run(
 
 
 def classify_existing(db_path: str = "output/instagram_data.db") -> int:
-    """Backfill sentiment/is_purchase_barrier_signal/is_lens_relevant for
-    comments missing is_lens_relevant. Safe to re-run."""
+    """Backfill sentiment/is_purchase_barrier_signal/is_lens_relevant/themes
+    for comments missing is_lens_relevant OR themes. Safe to re-run — see
+    youtube_scraper.py's classify_existing() for why themes-missing rows
+    get all four fields re-derived together rather than a themes-only call."""
     client = OpenAI()
     conn = open_db(db_path)
     rows = conn.execute(
-        "SELECT id, comment_text_en FROM ig_comments WHERE is_lens_relevant IS NULL"
+        "SELECT id, comment_text_en FROM ig_comments WHERE is_lens_relevant IS NULL OR themes IS NULL"
     ).fetchall()
     log.info(f"[CLASSIFY] {len(rows)} comments missing classification")
 
@@ -828,11 +849,12 @@ def classify_existing(db_path: str = "output/instagram_data.db") -> int:
         for row, label in zip(batch, labels):
             conn.execute(
                 """UPDATE ig_comments
-                   SET sentiment = ?, is_purchase_barrier_signal = ?, is_lens_relevant = ?
+                   SET sentiment = ?, is_purchase_barrier_signal = ?, is_lens_relevant = ?, themes = ?
                    WHERE id = ?""",
                 (
                     label["sentiment"], int(label["is_purchase_barrier_signal"]),
-                    int(label["is_lens_relevant"]), row["id"],
+                    int(label["is_lens_relevant"]), json.dumps(label["themes"], ensure_ascii=False),
+                    row["id"],
                 ),
             )
             classified += 1

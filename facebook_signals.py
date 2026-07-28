@@ -14,7 +14,10 @@ produce, so Facebook's sentiment split will structurally never show one,
 unlike XHS/LIHKG/YouTube/Instagram. mentioned_brands is comma-joined and
 multi-valued per review (any of the 5 tracked brands can be named in the
 review text, or none) — same shape as LIHKG's mentioned_brands, not XHS's
-single-value brand_mentioned.
+single-value brand_mentioned. themes is JSON-encoded (list[str], 0-4 items
+per review) using xhs_scraper_v2.py's VALID_THEMES vocabulary verbatim —
+see facebook_reviews_merge.py's module docstring for why a shared
+vocabulary was used instead of a Facebook-specific one.
 
 There's no discovery-then-relevance-filter pass here (unlike Instagram/
 YouTube) — every review IS the analysis unit, so load_hk_dashboard_data()
@@ -25,6 +28,7 @@ from lensdata.db, matching the youtube_data.db/instagram_data.db precedent —
 see facebook_reviews_merge.py's module docstring for why.
 """
 
+import json
 import os
 import sqlite3
 
@@ -67,6 +71,14 @@ def load_facebook_reviews(db_path: str, mtime: float) -> pd.DataFrame:
     reviews["mentioned_brands_list"] = reviews["mentioned_brands"].apply(
         lambda s: [b for b in s.split(",") if b] if s else []
     )
+
+    def _parse_themes(val):
+        try:
+            return json.loads(val) if val else []
+        except Exception:
+            return []
+
+    reviews["themes_list"] = reviews["themes"].apply(_parse_themes)
     return reviews
 
 
@@ -183,6 +195,30 @@ def render(db_path: str = DEFAULT_DB_PATH):
             "recommending (price, comfort, trust, availability, service, etc.)."
         )
 
+        theme_brand = (
+            exploded.explode("themes_list")
+            .groupby(["mentioned_brands_list", "themes_list"])
+            .size().reset_index(name="count")
+        )
+        theme_brand = theme_brand[theme_brand["themes_list"].notna() & (theme_brand["themes_list"] != "")]
+        if not theme_brand.empty:
+            theme_order = (
+                theme_brand.groupby("themes_list")["count"].sum()
+                .sort_values(ascending=False)
+                .head(15)
+                .index
+            )
+            theme_brand = theme_brand[theme_brand["themes_list"].isin(theme_order)]
+            fig = px.bar(
+                theme_brand, x="count", y="themes_list", color="mentioned_brands_list",
+                orientation="h",
+                category_orders={"themes_list": list(reversed(list(theme_order)))},
+                title="Top 15 themes across all brands",
+                labels={"themes_list": "Theme", "count": "Mentions", "mentioned_brands_list": "Brand"},
+            )
+            fig.update_layout(barmode="stack")
+            st.plotly_chart(fig, width='stretch')
+
     for brand, brand_tab in zip(brands, brand_tabs):
         with brand_tab:
             b_reviews = exploded[exploded["mentioned_brands_list"] == brand]
@@ -199,6 +235,30 @@ def render(db_path: str = DEFAULT_DB_PATH):
                 delta=f"{barrier_n / len(b_reviews) * 100:.0f}% of reviews" if len(b_reviews) else None,
                 delta_color="off",
             )
+
+            theme_sentiment = (
+                b_reviews.explode("themes_list")
+                .groupby(["themes_list", "sentiment"])
+                .size().reset_index(name="count")
+            )
+            theme_sentiment = theme_sentiment[theme_sentiment["themes_list"].notna() & (theme_sentiment["themes_list"] != "")]
+            if not theme_sentiment.empty:
+                theme_order = (
+                    theme_sentiment.groupby("themes_list")["count"].sum()
+                    .sort_values().index
+                )
+                fig = px.bar(
+                    theme_sentiment, x="count", y="themes_list", color="sentiment",
+                    orientation="h",
+                    category_orders={"themes_list": list(theme_order)},
+                    color_discrete_map={"positive": "#16a34a", "neutral": "#94a3b8", "negative": "#dc2626"},
+                    title="Most discussed themes, by sentiment",
+                    labels={"themes_list": "Theme", "count": "Mentions"},
+                )
+                fig.update_layout(barmode="stack")
+                st.plotly_chart(fig, width='stretch')
+            else:
+                st.caption("No themes extracted for this brand's reviews yet.")
 
             st.subheader("Purchase-barrier reviews")
             barrier_reviews = b_reviews[b_reviews["is_purchase_barrier_signal"] == 1]
