@@ -11,6 +11,7 @@ why this is framed as "signals" rather than folded into the
 review/XHS "feedback" tabs, which are both dated and product-scoped.
 """
 
+import json
 import sqlite3
 
 import pandas as pd
@@ -59,6 +60,14 @@ def load_lihkg_posts(db_path: str, mtime: float) -> pd.DataFrame:
     merged["mentioned_brands_list"] = merged["mentioned_brands"].apply(
         lambda s: [b for b in s.split(",") if b] if s else []
     )
+
+    def _parse_themes(val):
+        try:
+            return json.loads(val) if val else []
+        except Exception:
+            return []
+
+    merged["themes_list"] = merged["themes"].apply(_parse_themes) if "themes" in merged.columns else [[] for _ in range(len(merged))]
     merged["likely_collision"] = merged["category"].isin(KNOWN_COLLISION_CATEGORIES)
     return merged
 

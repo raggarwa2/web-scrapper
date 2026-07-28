@@ -148,6 +148,28 @@ def load_instagram_comments_hk(instagram_db_path: Path) -> pd.DataFrame:
     return df
 
 
+def load_facebook_reviews_hk(facebook_db_path: Path) -> pd.DataFrame:
+    """mentioned_brands is a comma-separated string (a review can mention
+    multiple brands, same as LIHKG) — explode so each mentioned brand gets
+    a vote. sentiment is already rule-derived (positive/negative/neutral
+    only, from is_recommended — see facebook_reviews_merge.py), so no
+    non-standard-label filter is needed here, unlike XHS/LIHKG. Returns
+    empty (not an error) if the facebook db doesn't exist yet."""
+    if not Path(facebook_db_path).exists():
+        return pd.DataFrame(columns=["brand", "sentiment", "text_english"])
+    conn = sqlite3.connect(facebook_db_path)
+    df = pd.read_sql_query(
+        "SELECT mentioned_brands, sentiment, text_english FROM fb_reviews "
+        "WHERE sentiment IN ('positive', 'negative', 'neutral')",
+        conn,
+    )
+    conn.close()
+    df = df[df["mentioned_brands"].notna() & (df["mentioned_brands"].str.strip() != "")]
+    df = df.assign(brand=df["mentioned_brands"].str.split(",")).explode("brand")
+    df["brand"] = df["brand"].str.strip()
+    return df[df["brand"] != ""][["brand", "sentiment", "text_english"]]
+
+
 def count_excluded_labels(
     db_path: Path,
     youtube_db_path: Path = DEFAULT_YOUTUBE_DB,
@@ -197,6 +219,10 @@ def count_excluded_labels(
         "xhs_comments non-standard/blank sentiment": int(xhs_comment_other),
         "youtube_comments not brand-relevant/on-topic": int(youtube_excluded),
         "instagram_comments not brand-relevant/on-topic": int(instagram_excluded),
+        # fb_reviews.sentiment is rule-derived (positive/negative/neutral only,
+        # from is_recommended) — no non-standard label is possible, so this is
+        # always 0. Kept for symmetry with the other sources' exclusion counts.
+        "facebook_reviews non-standard sentiment": 0,
     }
 
 
@@ -248,11 +274,12 @@ def _source_counts(df: pd.DataFrame, brand: str) -> dict:
 def pool_scraped_sentiment(reviews: pd.DataFrame, xhs_posts: pd.DataFrame,
                             xhs_comments: pd.DataFrame, lihkg: pd.DataFrame,
                             youtube_comments: pd.DataFrame, instagram_comments: pd.DataFrame,
+                            facebook_reviews: pd.DataFrame,
                             brands: list) -> pd.DataFrame:
     source_frames = {
         "review": reviews, "xhs_post": xhs_posts, "xhs_comment": xhs_comments,
         "lihkg": lihkg, "youtube_comment": youtube_comments,
-        "instagram_comment": instagram_comments,
+        "instagram_comment": instagram_comments, "facebook_review": facebook_reviews,
     }
     rows = []
     for brand in brands:
@@ -351,6 +378,7 @@ def classify_agreement(pooled: pd.DataFrame, reputation: pd.DataFrame) -> pd.Dat
 
 def build_diverge_evidence(diverge_brands: list, reviews: pd.DataFrame, xhs_posts: pd.DataFrame,
                             youtube_comments: pd.DataFrame, instagram_comments: pd.DataFrame,
+                            facebook_reviews: pd.DataFrame,
                             reputation: pd.DataFrame,
                             scraped_lean_by_brand: dict) -> dict:
     evidence = {}
@@ -391,6 +419,12 @@ def build_diverge_evidence(diverge_brands: list, reviews: pd.DataFrame, xhs_post
             r = brand_instagram.iloc[0]
             scraped_examples.append({"source": "instagram_comment", "rating": r["sentiment"], "text": str(r["comment_text_en"])[:200]})
 
+        brand_facebook = facebook_reviews[(facebook_reviews["brand"] == brand) & (facebook_reviews["sentiment"] == lean)
+                                           & facebook_reviews["text_english"].notna()]
+        if not brand_facebook.empty:
+            r = brand_facebook.iloc[0]
+            scraped_examples.append({"source": "facebook_review", "rating": r["sentiment"], "text": str(r["text_english"])[:200]})
+
         evidence[brand] = {"reputation_rows": rep_rows, "scraped_examples": scraped_examples[:3]}
     return evidence
 
@@ -406,10 +440,12 @@ def write_outputs(result: pd.DataFrame, evidence: dict, exclusions: dict, out_di
     lines = ["# External Validation — Reputation.csv Cross-Check\n"]
     lines.append(
         "Compares our own scraped sentiment (HK reviews + XHS posts + XHS comments + LIHKG posts + "
-        "YouTube comments + Instagram comments, pooled — none of these needed new LLM classification "
-        "here, all six already carry a sentiment label from their own scraper) against "
-        "`Research/reputation.csv`'s manually-researched forum/press sentiment, per brand. This is a "
-        "QA/credibility check: do the two independent signals agree?\n"
+        "YouTube comments + Instagram comments + Facebook reviews, pooled — none of these needed new "
+        "LLM classification here, all seven already carry a sentiment label from their own scraper — "
+        "Facebook's is rule-derived from the reviewer's own recommend/not-recommend flag rather than "
+        "LLM-labeled like the other six) against `Research/reputation.csv`'s manually-researched "
+        "forum/press sentiment, per brand. This is a QA/credibility check: do the two independent "
+        "signals agree?\n"
     )
     lines.append(
         "**Pooling method:** each source's positive/negative/neutral counts are simply summed "
@@ -457,6 +493,7 @@ def main():
     parser.add_argument("--db", default=str(DEFAULT_DB))
     parser.add_argument("--youtube-db", default=str(DEFAULT_YOUTUBE_DB))
     parser.add_argument("--instagram-db", default=str(DEFAULT_INSTAGRAM_DB))
+    parser.add_argument("--facebook-db", default=str(DEFAULT_FACEBOOK_DB))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--research", default=str(DEFAULT_RESEARCH))
     args = parser.parse_args()
@@ -464,6 +501,7 @@ def main():
     db_path = Path(args.db)
     youtube_db_path = Path(args.youtube_db)
     instagram_db_path = Path(args.instagram_db)
+    facebook_db_path = Path(args.facebook_db)
     out_dir = Path(args.out)
     research_dir = Path(args.research)
 
@@ -481,25 +519,29 @@ def main():
     lihkg_raw = load_lihkg_hk(db_path)
     youtube_raw = load_youtube_comments_hk(youtube_db_path)
     instagram_raw = load_instagram_comments_hk(instagram_db_path)
+    facebook_raw = load_facebook_reviews_hk(facebook_db_path)
 
     xhs_posts = _normalize_brand_column(xhs_posts_raw, canonical_brands)
     xhs_comments = _normalize_brand_column(xhs_comments_raw, canonical_brands)
     lihkg = _normalize_brand_column(lihkg_raw, canonical_brands)
     youtube_comments = _normalize_brand_column(youtube_raw, canonical_brands)
     instagram_comments = _normalize_brand_column(instagram_raw, canonical_brands)
+    facebook_reviews = _normalize_brand_column(facebook_raw, canonical_brands)
 
     print(
         f"Loaded: {len(reviews)} reviews, {len(xhs_posts)}/{len(xhs_posts_raw)} XHS posts (post normalization), "
         f"{len(xhs_comments)}/{len(xhs_comments_raw)} XHS comments, {len(lihkg)}/{len(lihkg_raw)} LIHKG brand-mentions, "
         f"{len(youtube_comments)}/{len(youtube_raw)} YouTube comments, "
-        f"{len(instagram_comments)}/{len(instagram_raw)} Instagram comments"
+        f"{len(instagram_comments)}/{len(instagram_raw)} Instagram comments, "
+        f"{len(facebook_reviews)}/{len(facebook_raw)} Facebook brand-mentions"
     )
 
     reputation = load_reputation_hk(research_dir)
     print(f"Loaded {len(reputation)} HK reputation.csv rows")
 
     pooled = pool_scraped_sentiment(
-        reviews, xhs_posts, xhs_comments, lihkg, youtube_comments, instagram_comments, canonical_brands
+        reviews, xhs_posts, xhs_comments, lihkg, youtube_comments, instagram_comments,
+        facebook_reviews, canonical_brands
     )
     rep_lean = reputation_lean(reputation, canonical_brands)
     result = classify_agreement(pooled, rep_lean)
@@ -508,7 +550,8 @@ def main():
     print(f"Diverge brands: {diverge_brands or 'none'}")
     scraped_lean_by_brand = dict(zip(result["brand"], result["scraped_lean"]))
     evidence = build_diverge_evidence(
-        diverge_brands, reviews, xhs_posts, youtube_comments, instagram_comments, reputation, scraped_lean_by_brand
+        diverge_brands, reviews, xhs_posts, youtube_comments, instagram_comments,
+        facebook_reviews, reputation, scraped_lean_by_brand
     )
 
     exclusions = count_excluded_labels(db_path, youtube_db_path, instagram_db_path)

@@ -2442,6 +2442,30 @@ with tab_social_signals:
                         "(price, comfort, trust, availability, habit, etc.)."
                     )
 
+                    theme_brand = (
+                        lihkg_exploded.explode("themes_list")
+                        .groupby(["mentioned_brands_list", "themes_list"])
+                        .size().reset_index(name="count")
+                    )
+                    theme_brand = theme_brand[theme_brand["themes_list"].notna() & (theme_brand["themes_list"] != "")]
+                    if not theme_brand.empty:
+                        theme_order = (
+                            theme_brand.groupby("themes_list")["count"].sum()
+                            .sort_values(ascending=False)
+                            .head(15)
+                            .index
+                        )
+                        theme_brand = theme_brand[theme_brand["themes_list"].isin(theme_order)]
+                        fig = px.bar(
+                            theme_brand, x="count", y="themes_list", color="mentioned_brands_list",
+                            orientation="h",
+                            category_orders={"themes_list": list(reversed(list(theme_order)))},
+                            title="Top 15 themes across all brands",
+                            labels={"themes_list": "Theme", "count": "Mentions", "mentioned_brands_list": "Brand"},
+                        )
+                        fig.update_layout(barmode="stack")
+                        st.plotly_chart(fig, width='stretch')
+
                 for brand, brand_tab in zip(lihkg_brands, brand_tabs):
                     with brand_tab:
                         b_posts = lihkg_exploded[lihkg_exploded["mentioned_brands_list"] == brand]
@@ -2456,6 +2480,28 @@ with tab_social_signals:
                         m_cols[3].metric("Purchase-barrier posts", barrier_n,
                             delta=f"{barrier_n / len(b_posts) * 100:.0f}% of posts" if len(b_posts) else None,
                             delta_color="off")
+
+                        theme_sentiment = (
+                            b_posts.explode("themes_list")
+                            .groupby(["themes_list", "sentiment"])
+                            .size().reset_index(name="count")
+                        )
+                        theme_sentiment = theme_sentiment[theme_sentiment["themes_list"].notna() & (theme_sentiment["themes_list"] != "")]
+                        if not theme_sentiment.empty:
+                            theme_order = (
+                                theme_sentiment.groupby("themes_list")["count"].sum()
+                                .sort_values().index
+                            )
+                            fig = px.bar(
+                                theme_sentiment, x="count", y="themes_list", color="sentiment",
+                                orientation="h",
+                                category_orders={"themes_list": list(theme_order)},
+                                color_discrete_map={"positive": "#16a34a", "neutral": "#94a3b8", "negative": "#dc2626", "mixed": "#e8a33d"},
+                                title="Most discussed themes, by sentiment",
+                                labels={"themes_list": "Theme", "count": "Mentions"},
+                            )
+                            fig.update_layout(barmode="stack")
+                            st.plotly_chart(fig, width='stretch')
 
                         st.subheader("Purchase-barrier posts")
                         barrier_posts = b_posts[b_posts["is_purchase_barrier_signal"] == 1]
